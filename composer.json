@@ -1,20 +1,58 @@
 {
-  "name": "mikopbx/module-phrase-studio",
-  "description": "Phrase Studio: on-server text-to-speech generation for MikoPBX (Piper TTS)",
-  "type": "mikopbx-module",
-  "license": "GPL-3.0-or-later",
-  "authors": [
-    {
-      "name": "MIKO LLC",
-      "email": "help@miko.ru"
+    "name": "mikopbx/modulephrasestudio",
+    "description": "Phrase Studio: on-server text-to-speech generation for MikoPBX (Piper TTS)",
+    "require": {
+        "php": "^8.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\ModulePhraseStudio\\": "/"
+        }
+    },
+    "type": "application",
+    "keywords": [
+        "pbx",
+        "asterisk",
+        "mikopbx",
+        "sip",
+        "voip",
+        "phalcon",
+        "telephony",
+        "tts",
+        "piper"
+    ],
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/mikopbx/ModulePhraseStudio",
+    "support": {
+        "email": "help@mikopbx.com",
+        "wiki": "https://wiki.mikopbx.com",
+        "issues": "https://github.com/mikopbx/Core/issues",
+        "source": "https://github.com/mikopbx/Core",
+        "forum": "https://qa.mikopbx.ru",
+        "chat": "https://t.me/mikopbx_dev"
+    },
+    "authors": [
+        {
+            "name": "Alexey Portnov",
+            "email": "apor@miko.ru",
+            "role": "Developer"
+        },
+        {
+            "name": "Nikolay Beketov",
+            "email": "nbek@miko.ru",
+            "role": "Developer"
+        }
+    ],
+    "funding": [
+        {
+            "type": "patreon",
+            "url": "https://www.patreon.com/mikopbx"
+        }
+    ],
+    "config": {
+        "sort-packages": true,
+        "platform": {
+            "php": "8.4.0"
+        }
     }
-  ],
-  "autoload": {
-    "psr-4": {
-      "Modules\\ModulePhraseStudio\\": ""
-    }
-  },
-  "require": {
-    "php": ">=8.3"
-  }
 }
