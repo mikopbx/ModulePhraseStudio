@@ -261,7 +261,9 @@ const phraseStudioIndex = {
             }
             const downloadUrl = `${phraseStudioIndex.api.phrases}/${data.phrase_id}:download`;
             $('#phrase-studio-player').attr('src', downloadUrl).get(0).load();
-            $('#phrase-studio-download-link').attr('href', downloadUrl);
+            $('#phrase-studio-download-link')
+                .attr('href', downloadUrl)
+                .attr('download', `phrase_${data.phrase_id}.wav`);
             $('#phrase-studio-result').show();
             if ($('#phrase-studio-remember').is(':checked')) {
                 phraseStudioIndex.persistDefaults(voiceId, sampleRate);
@@ -313,7 +315,7 @@ const phraseStudioIndex = {
                 .css({width: '220px', verticalAlign: 'middle'});
             $tr.append($('<td>').append($player));
             $tr.append($('<td>').addClass('right aligned')
-                .append(`<a class="ui small basic icon button" href="${downloadUrl}" target="_blank" title="${globalTranslate.module_phrase_studio_DownloadButton}"><i class="download icon"></i></a>`)
+                .append(`<a class="ui small basic icon button" href="${downloadUrl}" download="phrase_${row.id}.wav" title="${globalTranslate.module_phrase_studio_DownloadButton}"><i class="download icon"></i></a>`)
                 .append(
                     $('<button>').addClass('ui small basic red icon button')
                         .attr('data-id', row.id)

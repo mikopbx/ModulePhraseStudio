@@ -54,15 +54,16 @@ class DownloadPhraseAction
             return $res;
         }
 
-        $downloadName = sprintf('phrase_%d.wav', $id);
-        $size         = (int)@filesize($real);
+        $size = (int)@filesize($real);
 
+        // Streaming with no download_name → BaseController emits
+        // "Content-Disposition: inline", so <audio> can play it directly.
+        // The "Download" button uses an <a download> attribute on the client side.
         $res->success = true;
         $res->data = [
             'fpassthru' => [
                 'filename'           => $real,
                 'content_type'       => 'audio/wav',
-                'download_name'      => $downloadName,
                 'need_delete'        => false,
                 'additional_headers' => $size > 0 ? ['Content-Length' => (string)$size] : [],
             ],
