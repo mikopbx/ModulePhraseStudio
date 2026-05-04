@@ -223,7 +223,14 @@ const phraseStudioIndex = {
             data: JSON.stringify({voice_id: voiceId}),
             contentType: 'application/json',
             dataType: 'json',
-        }).done(() => {
+        }).done((response) => {
+            if (response && response.result === false) {
+                $btn.removeClass('loading disabled');
+                UserMessage.showMultiString(response.messages
+                    || globalTranslate.module_phrase_studio_ErrorVoiceInstall);
+                return;
+            }
+            UserMessage.showInformation(`${globalTranslate.module_phrase_studio_VoiceInstalled_Toast}: ${voiceId}`);
             phraseStudioIndex.refreshVoices();
         }).fail(() => {
             $btn.removeClass('loading disabled');
@@ -240,6 +247,7 @@ const phraseStudioIndex = {
             method: 'DELETE',
             dataType: 'json',
         }).done(() => {
+            UserMessage.showInformation(`${globalTranslate.module_phrase_studio_VoiceUninstalled_Toast}: ${voiceId}`);
             phraseStudioIndex.refreshVoices();
         }).fail(() => {
             $btn.removeClass('loading disabled');
@@ -274,12 +282,9 @@ const phraseStudioIndex = {
             if ($('#phrase-studio-remember').is(':checked')) {
                 phraseStudioIndex.persistDefaults(voiceId, sampleRate);
             }
-            // Switch to History tab — the new row carries the standard
-            // SoundFiles-style player so the user can listen and download
-            // there. Avoids duplicating the player UI on the Studio tab.
-            phraseStudioIndex.refreshHistory(() => {
-                $('#phrase-studio-tab-menu .item[data-tab=history]').tab('change tab', 'history');
-            });
+            // History table lives right under the form on the Studio tab,
+            // so a refresh is enough — no tab switch.
+            phraseStudioIndex.refreshHistory();
         }).fail(() => {
             $btn.removeClass('loading disabled');
             UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorGenerate);
@@ -352,8 +357,10 @@ const phraseStudioIndex = {
                 new IndexSoundPlayer(`phrase-row-${row.id}`);
         });
 
-        $('#phrase-studio-history-table').on('click', 'button.delete-button', function onDelete(e) {
+        const $tbl = $('#phrase-studio-history-table').off('click.phraseStudio');
+        $tbl.on('click.phraseStudio', 'button.delete-button', function onDelete(e) {
             e.preventDefault();
+            e.stopPropagation();
             const id = $(this).data('id');
             if (!id) return;
             $.ajax({
@@ -363,18 +370,40 @@ const phraseStudioIndex = {
             }).done(() => phraseStudioIndex.refreshHistory())
               .fail(() => UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorHistoryDelete));
         });
+        // Click on the text cell → copy phrase text + voice back into the form
+        // so the user can edit and re-generate without retyping. Keeps the
+        // player / download / delete buttons clickable on their own.
+        $tbl.on('click.phraseStudio', 'td.phrase-reuse', function onReuse() {
+            const $row = $(this).closest('tr');
+            const text = $row.attr('data-text') || '';
+            const voice = $row.attr('data-voice') || '';
+            $('#phrase-studio-text').val(text).trigger('input');
+            if (voice) {
+                $('#phrase-studio-voice').dropdown('set selected', voice);
+            }
+            $('html, body').animate({scrollTop: $('#phrase-studio-text').offset().top - 80}, 200);
+            $('#phrase-studio-text').focus();
+        });
     },
 
     renderHistoryRow(row) {
-        const created  = row.created_at ? new Date(row.created_at * 1000).toLocaleString() : '—';
-        const text     = (row.text || '').substring(0, 80);
-        const voiceId  = row.voice_id || '';
-        const playUrl  = `${phraseStudioIndex.api.phrases}/${row.id}:download`;
-        const dlUrl    = playUrl;
-        const filename = `phrase_${row.id}.wav`;
-        return `<tr class="file-row" id="phrase-row-${row.id}" data-value="${playUrl}">
+        const created   = row.created_at ? new Date(row.created_at * 1000).toLocaleString() : '—';
+        const fullText  = row.text || '';
+        const shortText = fullText.length > 80 ? `${fullText.substring(0, 80)}…` : fullText;
+        const voiceId   = row.voice_id || '';
+        const playUrl   = `${phraseStudioIndex.api.phrases}/${row.id}:download`;
+        const dlUrl     = playUrl;
+        const filename  = `phrase_${row.id}.wav`;
+        const tooltip   = globalTranslate.module_phrase_studio_RowReuseTooltip || '';
+        const escAttr   = (s) => $('<div>').text(s).html().replace(/"/g, '&quot;');
+        return `<tr class="file-row" id="phrase-row-${row.id}"
+                    data-value="${playUrl}"
+                    data-text="${escAttr(fullText)}"
+                    data-voice="${escAttr(voiceId)}">
             <td>${$('<div>').text(created).html()}</td>
-            <td><i class="file audio outline icon"></i>${$('<div>').text(text).html()}</td>
+            <td class="phrase-reuse" style="cursor:pointer" title="${escAttr(tooltip)}">
+                <i class="file audio outline icon"></i>${$('<div>').text(shortText).html()}
+            </td>
             <td>${$('<div>').text(voiceId).html()}</td>
             <td class="six wide cdr-player hide-on-mobile">
                 <table>
