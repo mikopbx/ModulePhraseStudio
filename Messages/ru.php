@@ -21,6 +21,8 @@ return [
     'module_phrase_studio_VoiceInstalled_Toast'   => 'Голос установлен',
     'module_phrase_studio_VoiceUninstalled_Toast' => 'Голос удалён',
     'module_phrase_studio_RowReuseTooltip'        => 'Кликните, чтобы скопировать текст и голос обратно в форму',
+    'module_phrase_studio_HistoryEmptyTitle'      => 'Здесь пока пусто',
+    'module_phrase_studio_HistoryEmptyDescription' => 'Сгенерируйте первую фразу через форму выше — записи появятся в этом списке.',
     'module_phrase_studio_RememberDefaults' => 'Запомнить выбор как эталон для следующих фраз',
     'module_phrase_studio_DisabledHeader'   => 'Модуль выключен',
     'module_phrase_studio_DisabledHint'     => 'Включите модуль на странице «PBX Extensions», чтобы получить доступ к Студии, Голосам, Движку и Истории.',

@@ -21,6 +21,8 @@ return [
     'module_phrase_studio_VoiceInstalled_Toast'   => 'Voice installed',
     'module_phrase_studio_VoiceUninstalled_Toast' => 'Voice removed',
     'module_phrase_studio_RowReuseTooltip'        => 'Click to copy text and voice back into the form',
+    'module_phrase_studio_HistoryEmptyTitle'      => 'No phrases yet',
+    'module_phrase_studio_HistoryEmptyDescription' => 'Generate your first phrase using the form above — entries will appear in this list.',
     'module_phrase_studio_RememberDefaults' => 'Remember this choice as default for next phrases',
     'module_phrase_studio_DisabledHeader'   => 'Module is disabled',
     'module_phrase_studio_DisabledHint'     => 'Enable the module on the PBX Extensions page to access Studio, Voices, Engine and History.',

@@ -1,3 +1,17 @@
+<div id="phrase-studio-history-empty" style="display:none;">
+    <div class="ui placeholder segment">
+        <div class="ui icon header">
+            <i class="music icon"></i>
+            {{ t._('module_phrase_studio_HistoryEmptyTitle') }}
+        </div>
+        <div class="inline">
+            <div class="ui text">
+                {{ t._('module_phrase_studio_HistoryEmptyDescription') }}
+            </div>
+        </div>
+    </div>
+</div>
+
 <table class="ui selectable very compact unstackable table" id="phrase-studio-history-table">
     <thead>
         <tr>

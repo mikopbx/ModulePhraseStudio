@@ -334,8 +334,17 @@ const phraseStudioIndex = {
             $tbody.append(phraseStudioIndex.renderHistoryRow(row));
         });
 
+        const $tableWrap = $('#phrase-studio-history-table').closest('.dataTables_wrapper');
         if (rows.length === 0) {
+            $('#phrase-studio-history-table').hide();
+            ($tableWrap.length ? $tableWrap : $('#phrase-studio-history-table')).hide();
+            $('#phrase-studio-history-empty').show();
             return;
+        }
+        $('#phrase-studio-history-empty').hide();
+        $('#phrase-studio-history-table').show();
+        if ($tableWrap.length) {
+            $tableWrap.show();
         }
 
         // Initialise DataTable + sound players, mirroring SoundFiles index.
