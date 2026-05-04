@@ -39,11 +39,13 @@ class ModulePhraseStudioController extends BaseController
         $headerCSS = $this->assets->collection(AssetProvider::HEADER_CSS);
         $headerCSS
             ->addCss('css/vendor/datatable/dataTables.semanticui.min.css', true)
+            ->addCss('css/vendor/range/range.min.css', true)
             ->addCss('css/cache/' . $this->moduleUniqueID . '/module-phrase-studio-index.css', true);
 
         $footerJS = $this->assets->collection(AssetProvider::FOOTER_JS);
         $footerJS
             ->addJs('js/vendor/datatable/dataTables.semanticui.js', true)
+            ->addJs('js/vendor/range/range.min.js', true)
             ->addJs('js/pbx/SoundFiles/sound-files-index-player.js', true)
             ->addJs('js/cache/' . $this->moduleUniqueID . '/module-phrase-studio-index.js', true);
 
