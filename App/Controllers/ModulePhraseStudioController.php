@@ -36,10 +36,15 @@ class ModulePhraseStudioController extends BaseController
     public function indexAction(): void
     {
         $headerCSS = $this->assets->collection(AssetProvider::HEADER_CSS);
-        $headerCSS->addCss('css/cache/' . $this->moduleUniqueID . '/module-phrase-studio-index.css', true);
+        $headerCSS
+            ->addCss('css/vendor/datatable/dataTables.semanticui.min.css', true)
+            ->addCss('css/cache/' . $this->moduleUniqueID . '/module-phrase-studio-index.css', true);
 
         $footerJS = $this->assets->collection(AssetProvider::FOOTER_JS);
-        $footerJS->addJs('js/cache/' . $this->moduleUniqueID . '/module-phrase-studio-index.js', true);
+        $footerJS
+            ->addJs('js/vendor/datatable/dataTables.semanticui.js', true)
+            ->addJs('js/pbx/SoundFiles/sound-files-index-player.js', true)
+            ->addJs('js/cache/' . $this->moduleUniqueID . '/module-phrase-studio-index.js', true);
 
         $settings = ModulePhraseStudio::findFirst();
         if ($settings === null) {

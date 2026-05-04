@@ -31,13 +31,4 @@
     <button class="ui primary button" id="phrase-studio-generate-button" type="button">
         {{ t._('module_phrase_studio_GenerateButton') }}
     </button>
-
-    <div class="ui hidden divider"></div>
-    <div class="ui basic segment" id="phrase-studio-result" style="display:none;">
-        <audio controls id="phrase-studio-player" style="width: 100%;"></audio>
-        <div class="ui horizontal divider"></div>
-        <a class="ui green button" id="phrase-studio-download-link" href="#" target="_blank">
-            {{ t._('module_phrase_studio_DownloadButton') }}
-        </a>
-    </div>
 </div>

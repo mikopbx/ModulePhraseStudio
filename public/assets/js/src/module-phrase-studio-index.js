@@ -1,4 +1,4 @@
-/* global $, globalRootUrl, globalTranslate, PbxApi, UserMessage */
+/* global $, globalRootUrl, globalTranslate, PbxApi, UserMessage, IndexSoundPlayer, TokenManager, SemanticLocalization */
 
 /**
  * Studio page controller for ModulePhraseStudio.
@@ -20,6 +20,8 @@ const phraseStudioIndex = {
     state: {
         engine: null,
         voices: [],
+        soundPlayers: {},
+        historyDataTable: null,
     },
 
     initialize() {
@@ -259,16 +261,15 @@ const phraseStudioIndex = {
                     : globalTranslate.module_phrase_studio_ErrorGenerate);
                 return;
             }
-            const downloadUrl = `${phraseStudioIndex.api.phrases}/${data.phrase_id}:download`;
-            $('#phrase-studio-player').attr('src', downloadUrl).get(0).load();
-            $('#phrase-studio-download-link')
-                .attr('href', downloadUrl)
-                .attr('download', `phrase_${data.phrase_id}.wav`);
-            $('#phrase-studio-result').show();
             if ($('#phrase-studio-remember').is(':checked')) {
                 phraseStudioIndex.persistDefaults(voiceId, sampleRate);
             }
-            phraseStudioIndex.refreshHistory();
+            // Switch to History tab — the new row carries the standard
+            // SoundFiles-style player so the user can listen and download
+            // there. Avoids duplicating the player UI on the Studio tab.
+            phraseStudioIndex.refreshHistory(() => {
+                $('#phrase-studio-tab-menu .item[data-tab=history]').tab('change tab', 'history');
+            });
         }).fail(() => {
             $btn.removeClass('loading disabled');
             UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorGenerate);
@@ -285,56 +286,118 @@ const phraseStudioIndex = {
         });
     },
 
-    refreshHistory() {
+    refreshHistory(callback) {
         $.ajax({
             url: phraseStudioIndex.api.phrases,
             method: 'GET',
             dataType: 'json',
         }).done((response) => {
             phraseStudioIndex.renderHistory((response && response.data) || []);
+            if (typeof callback === 'function') {
+                callback();
+            }
         });
     },
 
     renderHistory(rows) {
+        // Tear down DataTable + sound players from the previous render.
+        if (phraseStudioIndex.state.historyDataTable
+            && $.fn.DataTable.isDataTable('#phrase-studio-history-table')) {
+            phraseStudioIndex.state.historyDataTable.destroy();
+            phraseStudioIndex.state.historyDataTable = null;
+        }
+        Object.values(phraseStudioIndex.state.soundPlayers).forEach((p) => {
+            if (p && p.html5Audio) {
+                p.html5Audio.pause();
+                p.html5Audio.src = '';
+            }
+        });
+        phraseStudioIndex.state.soundPlayers = {};
+
         const $tbody = $('#phrase-studio-history-table tbody').empty();
         rows.forEach((row) => {
-            const created = row.created_at
-                ? new Date(row.created_at * 1000).toLocaleString()
-                : '—';
-            const duration = row.duration_ms
-                ? `${(row.duration_ms / 1000).toFixed(1)} s`
-                : '—';
-            const downloadUrl = `${phraseStudioIndex.api.phrases}/${row.id}:download`;
-            const $tr = $('<tr>');
-            $tr.append($('<td>').text(created));
-            $tr.append($('<td>').text((row.text || '').substring(0, 80)));
-            $tr.append($('<td>').text(row.voice_id || ''));
-            $tr.append($('<td>').text(duration));
-            const $player = $('<audio>')
-                .attr({controls: 'controls', preload: 'none', src: downloadUrl})
-                .css({width: '220px', verticalAlign: 'middle'});
-            $tr.append($('<td>').append($player));
-            $tr.append($('<td>').addClass('right aligned')
-                .append(`<a class="ui small basic icon button" href="${downloadUrl}" download="phrase_${row.id}.wav" title="${globalTranslate.module_phrase_studio_DownloadButton}"><i class="download icon"></i></a>`)
-                .append(
-                    $('<button>').addClass('ui small basic red icon button')
-                        .attr('data-id', row.id)
-                        .attr('title', globalTranslate.module_phrase_studio_HistoryDelete)
-                        .append('<i class="trash icon"></i>')
-                        .on('click', phraseStudioIndex.onHistoryDelete)
-                ));
-            $tbody.append($tr);
+            $tbody.append(phraseStudioIndex.renderHistoryRow(row));
+        });
+
+        if (rows.length === 0) {
+            return;
+        }
+
+        // Initialise DataTable + sound players, mirroring SoundFiles index.
+        phraseStudioIndex.state.historyDataTable = $('#phrase-studio-history-table').DataTable({
+            lengthChange: false,
+            paging: true,
+            pageLength: 25,
+            searching: true,
+            info: false,
+            ordering: true,
+            language: typeof SemanticLocalization !== 'undefined'
+                ? SemanticLocalization.dataTableLocalisation
+                : undefined,
+            order: [[0, 'desc']],
+        });
+
+        rows.forEach((row) => {
+            phraseStudioIndex.state.soundPlayers[row.id] =
+                new IndexSoundPlayer(`phrase-row-${row.id}`);
+        });
+
+        $('#phrase-studio-history-table').on('click', 'button.delete-button', function onDelete(e) {
+            e.preventDefault();
+            const id = $(this).data('id');
+            if (!id) return;
+            $.ajax({
+                url: `${phraseStudioIndex.api.phrases}/${id}`,
+                method: 'DELETE',
+                dataType: 'json',
+            }).done(() => phraseStudioIndex.refreshHistory())
+              .fail(() => UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorHistoryDelete));
         });
     },
 
-    onHistoryDelete() {
-        const id = $(this).data('id');
-        $.ajax({
-            url: `${phraseStudioIndex.api.phrases}/${id}`,
-            method: 'DELETE',
-            dataType: 'json',
-        }).done(phraseStudioIndex.refreshHistory)
-          .fail(() => UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorHistoryDelete));
+    renderHistoryRow(row) {
+        const created  = row.created_at ? new Date(row.created_at * 1000).toLocaleString() : '—';
+        const text     = (row.text || '').substring(0, 80);
+        const voiceId  = row.voice_id || '';
+        const playUrl  = `${phraseStudioIndex.api.phrases}/${row.id}:download`;
+        const dlUrl    = playUrl;
+        const filename = `phrase_${row.id}.wav`;
+        return `<tr class="file-row" id="phrase-row-${row.id}" data-value="${playUrl}">
+            <td>${$('<div>').text(created).html()}</td>
+            <td><i class="file audio outline icon"></i>${$('<div>').text(text).html()}</td>
+            <td>${$('<div>').text(voiceId).html()}</td>
+            <td class="six wide cdr-player hide-on-mobile">
+                <table>
+                    <tr>
+                        <td class="one wide">
+                            <button class="ui tiny basic icon button play-button">
+                                <i class="ui icon play"></i>
+                            </button>
+                            <audio preload="none" id="audio-player-phrase-row-${row.id}" data-src="${playUrl}">
+                                <source src=""/>
+                            </audio>
+                        </td>
+                        <td>
+                            <div class="ui range cdr-player"></div>
+                        </td>
+                        <td class="one wide"><span class="cdr-duration"></span></td>
+                        <td class="one wide">
+                            <button class="ui tiny basic icon button download-button" data-value="${dlUrl}?filename=${filename}">
+                                <i class="ui icon download"></i>
+                            </button>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+            <td class="collapsing">
+                <div class="ui tiny basic icon buttons action-buttons">
+                    <button class="ui button delete-button" data-id="${row.id}"
+                            title="${globalTranslate.module_phrase_studio_HistoryDelete}">
+                        <i class="icon trash red"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>`;
     },
 };
 
