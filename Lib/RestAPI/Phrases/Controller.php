@@ -39,6 +39,7 @@ use MikoPBX\PBXCoreREST\Controllers\BaseRestController;
 #[HttpMapping(
     mapping: [
         'GET'    => ['getList', 'download'],
+        'HEAD'   => ['download'],
         'POST'   => ['create'],
         'DELETE' => ['delete'],
     ],

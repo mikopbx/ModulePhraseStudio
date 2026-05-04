@@ -56,6 +56,17 @@ class DownloadPhraseAction
 
         $size = (int)@filesize($real);
 
+        $headers = [];
+        if ($size > 0) {
+            $headers['Content-Length'] = (string)$size;
+        }
+        // Surface the cached duration so IndexSoundPlayer can render the
+        // total time on the slider before the audio is fetched.
+        $duration = (int)($row->duration_ms ?? 0);
+        if ($duration > 0) {
+            $headers['X-Audio-Duration'] = number_format($duration / 1000, 3, '.', '');
+        }
+
         // Streaming with no download_name → BaseController emits
         // "Content-Disposition: inline", so <audio> can play it directly.
         // The "Download" button uses an <a download> attribute on the client side.
@@ -65,7 +76,7 @@ class DownloadPhraseAction
                 'filename'           => $real,
                 'content_type'       => 'audio/wav',
                 'need_delete'        => false,
-                'additional_headers' => $size > 0 ? ['Content-Length' => (string)$size] : [],
+                'additional_headers' => $headers,
             ],
         ];
         return $res;
