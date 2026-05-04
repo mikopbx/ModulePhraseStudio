@@ -357,22 +357,36 @@ const phraseStudioIndex = {
                 new IndexSoundPlayer(`phrase-row-${row.id}`);
         });
 
-        const $tbl = $('#phrase-studio-history-table').off('click.phraseStudio');
-        $tbl.on('click.phraseStudio', 'button.delete-button', function onDelete(e) {
+        // Standard MikoPBX two-step delete (delete-something.js) flips the
+        // 'two-steps-delete' class off on the first click. We listen for the
+        // *second* click (when the class is gone) to fire the REST DELETE.
+        $('body').off('click.phraseStudio');
+        $('body').on('click.phraseStudio', 'a.delete:not(.two-steps-delete)', function onConfirmedDelete(e) {
+            const $target = $(e.target).closest('a.delete');
+            if ($target.closest('#phrase-studio-history-table').length === 0) {
+                return;
+            }
             e.preventDefault();
-            e.stopPropagation();
-            const id = $(this).data('id');
+            e.stopImmediatePropagation();
+            const id = $target.attr('data-value');
             if (!id) return;
+            $target.addClass('loading disabled');
             $.ajax({
                 url: `${phraseStudioIndex.api.phrases}/${id}`,
                 method: 'DELETE',
                 dataType: 'json',
             }).done(() => phraseStudioIndex.refreshHistory())
-              .fail(() => UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorHistoryDelete));
+              .fail(() => {
+                  $target.removeClass('loading disabled');
+                  UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorHistoryDelete);
+              });
         });
+        const $tbl = $('#phrase-studio-history-table');
+        $tbl.find('.popuped').popup();
         // Click on the text cell → copy phrase text + voice back into the form
         // so the user can edit and re-generate without retyping. Keeps the
         // player / download / delete buttons clickable on their own.
+        $tbl.off('click.phraseStudio');
         $tbl.on('click.phraseStudio', 'td.phrase-reuse', function onReuse() {
             const $row = $(this).closest('tr');
             const text = $row.attr('data-text') || '';
@@ -430,10 +444,11 @@ const phraseStudioIndex = {
             </td>
             <td class="collapsing">
                 <div class="ui tiny basic icon buttons action-buttons">
-                    <button class="ui button delete-button" data-id="${row.id}"
-                            title="${globalTranslate.module_phrase_studio_HistoryDelete}">
+                    <a href="#" data-value="${row.id}"
+                       class="ui button delete two-steps-delete popuped"
+                       data-content="${escAttr(globalTranslate.module_phrase_studio_HistoryDelete)}">
                         <i class="icon trash red"></i>
-                    </button>
+                    </a>
                 </div>
             </td>
         </tr>`;
