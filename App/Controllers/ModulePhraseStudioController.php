@@ -11,6 +11,7 @@ namespace Modules\ModulePhraseStudio\App\Controllers;
 
 use MikoPBX\AdminCabinet\Controllers\BaseController;
 use MikoPBX\AdminCabinet\Providers\AssetProvider;
+use MikoPBX\Common\Models\PbxExtensionModules;
 use Modules\ModulePhraseStudio\Models\ModulePhraseStudio;
 
 /**
@@ -51,9 +52,13 @@ class ModulePhraseStudioController extends BaseController
             $settings = new ModulePhraseStudio();
         }
 
+        $moduleRow      = PbxExtensionModules::findFirstByUniqid($this->moduleUniqueID);
+        $moduleDisabled = $moduleRow === null || (string)$moduleRow->disabled === '1';
+
         $this->view->phraseStudioDefaults = [
             'voice'      => (string)($settings->default_voice ?? ''),
             'sampleRate' => (string)($settings->default_sample_rate ?? 'native'),
+            'disabled'   => $moduleDisabled,
         ];
         $this->view->pick('Modules/' . $this->moduleUniqueID . '/ModulePhraseStudio/index');
     }

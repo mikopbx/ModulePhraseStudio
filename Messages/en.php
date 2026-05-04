@@ -18,6 +18,8 @@ return [
     'module_phrase_studio_TabEngine'      => 'Engine',
     'module_phrase_studio_TabHistory'     => 'History',
     'module_phrase_studio_RememberDefaults' => 'Remember this choice as default for next phrases',
+    'module_phrase_studio_DisabledHeader'   => 'Module is disabled',
+    'module_phrase_studio_DisabledHint'     => 'Enable the module on the PBX Extensions page to access Studio, Voices, Engine and History.',
 
     // Studio tab
     'module_phrase_studio_TextLabel'         => 'Text to synthesise',

@@ -28,6 +28,16 @@ const phraseStudioIndex = {
         $('#phrase-studio-tab-menu .item').tab();
         $('#phrase-studio-remember-checkbox').checkbox();
         $('#phrase-studio-sample-rate').dropdown();
+
+        // Module disabled → page is read-only, skip REST polling and
+        // disable the form inputs. Avoids the "failed to load voices"
+        // error popup users got when opening a disabled module's page.
+        if ((window.phraseStudioDefaults || {}).disabled) {
+            $('#phrase-studio-generate-form :input,'
+                + '#phrase-studio-generate-button').prop('disabled', true);
+            return;
+        }
+
         $('#phrase-studio-text').on('input', phraseStudioIndex.updateCounter);
         $('#phrase-studio-generate-button').on('click', phraseStudioIndex.onGenerate);
         $('[data-tab="voices"]').on('click', phraseStudioIndex.refreshVoices);

@@ -18,6 +18,8 @@ return [
     'module_phrase_studio_TabEngine'      => 'Движок',
     'module_phrase_studio_TabHistory'     => 'История',
     'module_phrase_studio_RememberDefaults' => 'Запомнить выбор как эталон для следующих фраз',
+    'module_phrase_studio_DisabledHeader'   => 'Модуль выключен',
+    'module_phrase_studio_DisabledHint'     => 'Включите модуль на странице «PBX Extensions», чтобы получить доступ к Студии, Голосам, Движку и Истории.',
 
     // Studio tab
     'module_phrase_studio_TextLabel'         => 'Текст для синтеза',
