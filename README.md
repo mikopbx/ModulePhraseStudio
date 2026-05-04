@@ -131,9 +131,7 @@ The module ships empty — engine and voices are downloaded from GitHub releases
 ## Support
 
 - **Issues:** [GitHub Issues](https://github.com/mikopbx/ModulePhraseStudio/issues)
-- **Wiki:** [GitHub Wiki](https://github.com/mikopbx/ModulePhraseStudio/wiki)
-- **Email:** [help@mikopbx.com](mailto:help@mikopbx.com)
-- **Telegram:** [@mikaboris](https://t.me/mikaboris)
+- **Telegram:** [@mikopbx_dev](https://t.me/mikopbx_dev)
 
 ## License
 
