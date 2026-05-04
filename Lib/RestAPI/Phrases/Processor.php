@@ -14,6 +14,7 @@ use Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions\DeletePhraseAction;
 use Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions\DownloadPhraseAction;
 use Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions\GeneratePhraseAction;
 use Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions\GetListAction;
+use Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions\PromoteToTmpAction;
 use Phalcon\Di\Injectable;
 
 /**
@@ -39,6 +40,9 @@ class Processor extends Injectable
                 break;
             case 'download':
                 $res = DownloadPhraseAction::main($request['data'] ?? []);
+                break;
+            case 'promoteToTmp':
+                $res = PromoteToTmpAction::main($request['data'] ?? []);
                 break;
             case 'delete':
                 $res = DeletePhraseAction::main($request['data'] ?? []);

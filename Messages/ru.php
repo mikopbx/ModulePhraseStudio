@@ -84,6 +84,16 @@ return [
     'module_phrase_studio_ValidateMaxTextLength'   => 'Введите число от 1 до 10 000.',
     'module_phrase_studio_ValidateCacheSizeLimit'  => 'Введите число от 0 до 10 000.',
 
+    // SoundFiles modify hook
+    'module_phrase_studio_SoundFilesHookHeader'   => 'Сгенерировать из текста (Студия фраз)',
+    'module_phrase_studio_SoundFilesHookSub'      => 'Озвучьте фразу через Piper и используйте результат в качестве исходника для этого файла.',
+    'module_phrase_studio_SoundFilesHookGenerate' => 'Сгенерировать и использовать',
+    'module_phrase_studio_SoundFilesHookSuccess'  => 'Сгенерированная фраза подгружена как исходник.',
+    'module_phrase_studio_SoundFilesHookNoVoice'  => 'Сначала установите хотя бы один голос в Студии фраз.',
+    'module_phrase_studio_SoundFilesHookEngineOff' => 'Движок Piper не установлен. Откройте «Студия фраз → Движок» и установите его.',
+    'module_phrase_studio_SoundFilesHookHistoryLabel' => 'Использовать ранее сгенерированную фразу',
+    'module_phrase_studio_SoundFilesHookHistoryPlaceholder' => 'Выберите фразу из истории…',
+
     // Errors
     'module_phrase_studio_ErrorEngineStatus'    => 'Не удалось получить статус движка.',
     'module_phrase_studio_ErrorEngineInstall'   => 'Не удалось установить движок Piper.',

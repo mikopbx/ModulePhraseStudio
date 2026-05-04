@@ -19,6 +19,10 @@ use MikoPBX\Modules\Config\ConfigClass;
  * registration is required here — ConfigClass already implements
  * RestAPIConfigInterface with empty stubs.
  *
+ * UI integration:
+ *   - onVoltBlockCompile() injects a TTS block into the SoundFiles modify form.
+ *   - onAfterAssetsPrepared() ships the JS that drives that block.
+ *
  * Cleanup-on-disable: when the module is disabled in the UI we keep
  * the user's downloaded engine binary, voice models and generated
  * phrases on disk. They will be picked up again automatically when
@@ -29,6 +33,8 @@ use MikoPBX\Modules\Config\ConfigClass;
  */
 class PhraseStudioConf extends ConfigClass
 {
+    public const string MODULE_UNIQUE_ID = 'ModulePhraseStudio';
+
     /**
      * Called once after the module is enabled in the admin cabinet.
      *
@@ -51,5 +57,42 @@ class PhraseStudioConf extends ConfigClass
     public function onAfterModuleDisable(): void
     {
         // No-op by design.
+    }
+
+    /**
+     * Hooks the SoundFiles "modify" form: when MikoPBX core renders
+     * `hookVoltBlock('Fields')` inside SoundFiles/modify.volt we hand back
+     * the path to our partial so the form gains a "Generate via TTS" segment.
+     *
+     * @param string                 $controller The called controller name.
+     * @param string                 $blockName  The named block in the volt template.
+     * @param \Phalcon\Mvc\View       $view      The view instance (unused).
+     */
+    public function onVoltBlockCompile(string $controller, string $blockName, $view): string
+    {
+        if ($controller === 'SoundFiles' && $blockName === 'Fields') {
+            return 'Modules/' . self::MODULE_UNIQUE_ID . '/SoundFiles/modify';
+        }
+        return '';
+    }
+
+    /**
+     * Ships the JS that drives the TTS block on the SoundFiles modify page.
+     *
+     * The JS detaches the partial-rendered form from the bottom of the page
+     * and reinserts it under the "upload / record" segment, so the block
+     * appears where it logically belongs without modifying core volts.
+     */
+    public function onAfterAssetsPrepared($assets, $dispatcher): void
+    {
+        if ($dispatcher->getControllerName() !== 'SoundFiles') {
+            return;
+        }
+        if ($dispatcher->getActionName() !== 'modify') {
+            return;
+        }
+
+        $assets->collection('footerJS')
+            ->addJs('js/cache/' . self::MODULE_UNIQUE_ID . '/module-phrase-studio-soundfiles.js', true);
     }
 }

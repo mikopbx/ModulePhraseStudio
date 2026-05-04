@@ -1,0 +1,25 @@
+parameters:
+    level: 0
+    paths:
+        - Lib
+        - Models
+        - App
+        - Setup
+    scanDirectories:
+        - ../../Core/src
+    parallel:
+        jobSize: 20
+        processTimeout: 300.0
+    tmpDir: /tmp/phpstan-ModulePhraseStudio
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        -
+            message: '#unknown class Phalcon\\Di#'
+        -
+            message: '#Class Phalcon\\Validation not found#'
+        -
+            message: '#Class Phalcon\\Validation\\Validator\\Uniqueness not found#'
+        -
+            message: '#Class Phalcon\\Text not found#'
+        -
+            message: '#Class Phalcon\\Logger not found#'

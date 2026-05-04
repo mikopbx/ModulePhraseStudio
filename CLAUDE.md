@@ -106,14 +106,28 @@ node node_modules/.bin/babel \
 Mikopbx serves `cache/{Module}/{file}.js` via a symlink to the module's
 `public/assets/js/` directory; missing compiled file → 404.
 
-## Phase 2 (open)
+## SoundFiles "modify" hook (Phase 2)
 
-Inject a third icon into the "Add new sound" core partial that posts to
-`/phrases`, promotes the resulting WAV into `tmp/uploads/`, and hands the
-filename to the existing `SoundFilesAPI.convertAudioFile` flow. Either via:
+The module injects a "Generate from text (Phrase Studio)" segment into
+the core SoundFiles modify form **without** modifying the core repo:
 
-1. a new core hook `onBeforeShowSoundFilePartial`, or
-2. a JS injector run on `/sound-files/modify` pages, plus a new endpoint
-   `POST /phrases/{id}:promote-to-tmp` returning the staged filename.
+1. `PhraseStudioConf::onVoltBlockCompile()` returns
+   `Modules/ModulePhraseStudio/SoundFiles/modify` for `SoundFiles:Fields`
+   so core's `hookVoltBlock('Fields')` renders our partial
+   (`App/Views/SoundFiles/modify.volt`).
+2. `PhraseStudioConf::onAfterAssetsPrepared()` ships
+   `module-phrase-studio-soundfiles.js` only on `SoundFiles:modify`.
+3. The JS detaches the partial-rendered segment and reinserts it under the
+   "upload / record" segment so it appears where it logically belongs.
+4. On generate the JS calls `POST /phrases` →
+   `POST /phrases/{id}:promoteToTmp` → `SoundFilesAPI.convertAudioFile`
+   (`temp_filename`, `category`).
 
-Option (2) keeps the change in the module — this is the planned approach.
+`PromoteToTmpAction` copies the cached WAV into `WWW_UPLOAD_DIR`
+(`/mountpoint/mikopbx/tmp/www_cache/upload_cache`) under a sanitised
+basename. We must copy (not symlink/move) because the core
+`convertAudioFile` uses `mv` and would otherwise drop the file from
+the phrase cache.
+
+JS source: `public/assets/js/src/module-phrase-studio-soundfiles.js` —
+build it the same way as the index file.

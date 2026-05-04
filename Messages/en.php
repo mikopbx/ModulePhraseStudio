@@ -84,6 +84,16 @@ return [
     'module_phrase_studio_ValidateMaxTextLength'   => 'Enter a value between 1 and 10 000.',
     'module_phrase_studio_ValidateCacheSizeLimit'  => 'Enter a value between 0 and 10 000.',
 
+    // SoundFiles modify hook
+    'module_phrase_studio_SoundFilesHookHeader'   => 'Generate from text (Phrase Studio)',
+    'module_phrase_studio_SoundFilesHookSub'      => 'Synthesize a phrase via Piper and use it as the source for this sound file.',
+    'module_phrase_studio_SoundFilesHookGenerate' => 'Generate and use as source',
+    'module_phrase_studio_SoundFilesHookSuccess'  => 'Generated phrase has been imported as the source file.',
+    'module_phrase_studio_SoundFilesHookNoVoice'  => 'Install at least one voice in Phrase Studio first.',
+    'module_phrase_studio_SoundFilesHookEngineOff' => 'The Piper engine is not installed. Open Phrase Studio → Engine and install it.',
+    'module_phrase_studio_SoundFilesHookHistoryLabel' => 'Reuse a previously generated phrase',
+    'module_phrase_studio_SoundFilesHookHistoryPlaceholder' => 'Pick a phrase from history…',
+
     // Errors
     'module_phrase_studio_ErrorEngineStatus'    => 'Failed to fetch engine status.',
     'module_phrase_studio_ErrorEngineInstall'   => 'Failed to install the Piper engine.',
