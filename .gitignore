@@ -1,0 +1,28 @@
+# Runtime data — never committed; created on first use
+db/piper/
+db/voices/
+db/phrases/
+db/*.db
+db/*.db-*
+voices/
+piper/
+bin/
+
+# OS / archive cruft
+.DS_Store
+__MACOSX/
+*.swp
+*.tmp
+
+# IDE
+.idea/
+.vscode/
+
+# Vendor / composer
+vendor/
+composer.lock
+
+# Build artefacts
+public/assets/js/cache/
+public/assets/css/cache/
+*.log

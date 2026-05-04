@@ -1,0 +1,41 @@
+/* ModulePhraseStudio — Studio page styles */
+
+#module-phrase-studio textarea#phrase-studio-text {
+    font-family: var(--font-mono, "Roboto Mono", monospace);
+    font-size: 0.95em;
+    min-height: 110px;
+}
+
+#phrase-studio-text-counter {
+    margin-top: 4px;
+    background: transparent;
+    color: rgba(0, 0, 0, 0.6);
+}
+
+#phrase-studio-result {
+    border-left: 4px solid #2185d0;
+    padding-left: 16px;
+    background: #f9fbff;
+}
+
+#phrase-studio-voices-table th,
+#phrase-studio-history-table th {
+    white-space: nowrap;
+}
+
+#phrase-studio-engine-status .ui.message {
+    margin-top: 0;
+}
+
+#phrase-studio-engine-status .ui.button {
+    margin-top: 12px;
+}
+
+#phrase-studio-tabs.tabular .item.active {
+    background: #f0f4ff;
+    border-bottom: 2px solid #2185d0;
+}
+
+#phrase-studio-settings-link {
+    margin-top: -4px;
+}

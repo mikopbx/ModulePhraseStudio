@@ -1,0 +1,20 @@
+{
+  "name": "mikopbx/module-phrase-studio",
+  "description": "Phrase Studio: on-server text-to-speech generation for MikoPBX (Piper TTS)",
+  "type": "mikopbx-module",
+  "license": "GPL-3.0-or-later",
+  "authors": [
+    {
+      "name": "MIKO LLC",
+      "email": "help@miko.ru"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Modules\\ModulePhraseStudio\\": ""
+    }
+  },
+  "require": {
+    "php": ">=8.3"
+  }
+}
