@@ -84,6 +84,22 @@ class PhraseStudioConf extends ConfigClass
                 );
             }
         }
+
+        // Refresh the upstream voices catalogue (~225 KB JSON, ~150 voices).
+        // The CLI runner is idempotent — it always overwrites the cache via
+        // an atomic rename — so triggering it on every enable keeps a freshly
+        // installed module synchronised with HuggingFace without scheduling
+        // a cron job. PiperVoicesCatalog falls back to the curated hardcoded
+        // list if the cache file is absent / unreadable, so a failure here
+        // is non-blocking.
+        $php    = Util::which('php');
+        $script = __DIR__ . '/Cli/refresh-voices-catalog.php';
+        if ($php !== '' && is_file($script)) {
+            Processes::mwExecBg(
+                sprintf('%s -f %s', escapeshellarg($php), escapeshellarg($script)),
+                '/dev/null'
+            );
+        }
     }
 
     /**
