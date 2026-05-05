@@ -16,11 +16,19 @@ use Modules\ModulePhraseStudio\Lib\PhraseStudioMain;
 /**
  * Generates (or returns a cached) phrase audio file.
  *
- * Validation phases:
+ * Runs entirely inside the standard `WorkerApiCommands` request thread —
+ * Piper synthesis takes 1–3 s on a healthy box, which fits comfortably
+ * in WorkerApiCommands' 30-second sync timeout. Cache hits return
+ * without invoking Piper at all. There is no persistent module worker:
+ * the rare slow op (voice download) is detached separately via
+ * `Processes::mwExecBg` from `PhraseStudioMain::installVoice`.
+ *
+ * Validation order:
  *  1. text non-empty + length <= max_text_length
  *  2. voice_id present
  *  3. engine binary installed
- *  4. voice model installed (checked inside PhraseStudioMain::generatePhrase)
+ *  4. voice model installed (and not in 'installing' / 'failed' state)
+ *  5. delegate to PhraseStudioMain (cache lookup → Piper → optional sox)
  *
  * @package Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions
  */
@@ -59,12 +67,12 @@ class GeneratePhraseAction
         $res->success  = (bool)($result['success'] ?? false);
         $res->httpCode = $res->success ? 200 : 500;
         $res->data = [
-            'phrase_id'  => (int)($result['phrase_id'] ?? 0),
-            'cache_key'  => (string)($result['cache_key'] ?? ''),
-            'cached'     => (bool)($result['cached'] ?? false),
-            'voice_id'   => $voiceId,
-            'sample_rate'=> $sampleRate,
-            'message'    => (string)($result['message'] ?? ''),
+            'phrase_id'   => (int)($result['phrase_id'] ?? 0),
+            'cache_key'   => (string)($result['cache_key'] ?? ''),
+            'cached'      => (bool)($result['cached'] ?? false),
+            'voice_id'    => $voiceId,
+            'sample_rate' => $sampleRate,
+            'message'     => (string)($result['message'] ?? ''),
         ];
 
         if (!$res->success) {

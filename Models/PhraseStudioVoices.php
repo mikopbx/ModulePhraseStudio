@@ -93,6 +93,40 @@ class PhraseStudioVoices extends ModulesModelsBase
      */
     public ?string $installed_at = '0';
 
+    /**
+     * Lifecycle of the voice install job:
+     *   ''           — legacy row from before async installs (treat as installed)
+     *   'installing' — worker is downloading the .onnx files right now
+     *   'installed'  — files on disk and verified
+     *   'failed'     — last install attempt errored; see install_error
+     *
+     * Decoupled from `installed_at` so the UI can poll for completion
+     * without ambiguity ("installed_at=0" used to be both "in progress"
+     * and "no row at all" depending on whether the row existed yet).
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public ?string $install_status = '';
+
+    /**
+     * Last install-failure message, surfaced to the UI in the voices
+     * table so the user knows why the download failed (network error,
+     * 404 from the voice repo, etc.). Cleared on the next successful
+     * install attempt.
+     *
+     * @Column(type="string", nullable=true)
+     */
+    public ?string $install_error = '';
+
+    /**
+     * Unix timestamp of when the current install attempt was queued.
+     * Used by the UI's polling loop to detect stalled installs (worker
+     * killed / OOM) and offer a retry instead of spinning forever.
+     *
+     * @Column(type="integer", default="0", nullable=true)
+     */
+    public ?string $install_started_at = '0';
+
     public static function getDynamicRelations(&$calledModelObject): void
     {
         // No cross-model relations.

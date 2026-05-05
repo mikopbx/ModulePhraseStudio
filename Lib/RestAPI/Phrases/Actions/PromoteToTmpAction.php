@@ -19,18 +19,20 @@ use Modules\ModulePhraseStudio\Models\PhraseStudioPhrases;
 
 /**
  * Stages a cached phrase WAV into MikoPBX's sound files folder and produces
- * Asterisk-compatible derivatives.
+ * Asterisk-compatible derivatives (wav/mp3/ulaw/alaw/gsm/g722/sln).
  *
- * We deliberately bypass `SoundFilesAPI::convertAudioFile` — that endpoint
- * forces sample_rate=8000/bitrate=16k and a loudnorm pre-pass, which mangles
- * Piper's clean 22 kHz speech into a tinny "talking through a bucket" MP3.
- * Instead, we copy the WAV directly to the target directory and call
- * `SoundFilesConf::convertAudioFile()` with quality-friendly options:
- *   - sample_rate=22050   keeps the WAV at the rate Piper produces
- *   - bitrate=128k        produces a clean MP3 for the browser preview
- *   - normalize=false     Piper already outputs normalised audio
- * The codec-mandated formats (ulaw/alaw/gsm/sln/g722) are still resampled
- * to the rates Asterisk requires, so telephony playback is unaffected.
+ * Runs synchronously inside `WorkerApiCommands` — ffmpeg fan-out for 7
+ * formats finishes in ~1–2 s on a healthy box, well inside the 30-second
+ * sync-timeout. Splits into a pre-flight `main()` and a static helper
+ * `executePromotion()` only for clarity (one validates request inputs,
+ * the other runs the conversion); both share the same request thread.
+ *
+ * Quality knobs (overrides core defaults of 8 kHz / 16k bitrate / loudnorm):
+ *   - sample_rate=22050 keeps WAV at Piper's native rate
+ *   - bitrate=128k preserves clean preview-MP3
+ *   - normalize=false — Piper output is already normalised
+ * Codec-specific formats (ulaw/alaw/gsm/sln/g722) are still resampled to the
+ * rates Asterisk requires for telephony playback.
  *
  * @package Modules\ModulePhraseStudio\Lib\RestAPI\Phrases\Actions
  */
@@ -76,17 +78,71 @@ class PromoteToTmpAction
         }
         Util::mwMkdir($targetDir);
 
-        $baseName = self::buildUniqueBaseName($targetDir, (string)($data['name'] ?? ''), $row);
-        $targetWav = $targetDir . '/' . $baseName . '.wav';
+        $baseName  = self::buildUniqueBaseName($targetDir, (string)($data['name'] ?? ''), $row);
+        $sampleRate = (int)($row->sample_rate ?? 22050) ?: 22050;
 
-        if (!@copy($real, $targetWav)) {
-            $res->messages['error'][] = 'Failed to stage phrase into sound files directory';
+        // ffmpeg fan-out runs synchronously here — 1–2 s for the seven
+        // codec targets fits comfortably inside WorkerApiCommands' 30-second
+        // sync budget, no detach needed.
+        $result = self::executePromotion([
+            'source'      => $real,
+            'target_dir'  => $targetDir,
+            'base_name'   => $baseName,
+            'sample_rate' => $sampleRate,
+            'category'    => $category,
+            'phrase_id'   => (int)$row->id,
+        ]);
+
+        if (empty($result['success'])) {
+            $res->messages['error'][] = (string)($result['message'] ?? 'Audio conversion failed');
             $res->httpCode = 500;
             return $res;
         }
 
+        $res->success  = true;
+        $res->httpCode = 200;
+        $res->data = [
+            'path'      => (string)($result['mp3_path'] ?? ''),
+            'mp3_path'  => (string)($result['mp3_path'] ?? ''),
+            'wav_path'  => (string)($result['wav_path'] ?? ''),
+            'basename'  => $baseName,
+            'category'  => $category,
+            'phrase_id' => (int)$row->id,
+        ];
+        return $res;
+    }
+
+    /**
+     * The actual ffmpeg fan-out. Pure helper — accepts a fully resolved
+     * payload and runs SoundFilesConf::convertAudioFile().
+     *
+     * Critical: `$payload['source']` MUST point at the original cached WAV
+     * in `db/phrases/`, NOT at the future `$baseName.wav` in the target dir.
+     * convertAudioFile would otherwise read and write the same file for the
+     * 'wav' target, and ffmpeg fails with exit 234 ("input/output is same
+     * file"). Keeping the source separate from output_dir avoids the trap.
+     *
+     * @param array{source: string, target_dir: string, base_name: string, sample_rate: int, category: string, phrase_id: int} $payload
+     * @return array{success: bool, message?: string, mp3_path?: string, wav_path?: string, basename?: string, category?: string, phrase_id?: int}
+     */
+    private static function executePromotion(array $payload): array
+    {
+        $source     = (string)($payload['source'] ?? '');
+        $targetDir  = (string)($payload['target_dir'] ?? '');
+        $baseName   = (string)($payload['base_name'] ?? '');
+        $sampleRate = (int)($payload['sample_rate'] ?? 22050) ?: 22050;
+
+        if ($source === '' || !is_file($source)) {
+            return ['success' => false, 'message' => 'Source phrase WAV is missing'];
+        }
+        if ($targetDir === '' || $baseName === '') {
+            return ['success' => false, 'message' => 'Target directory or basename missing'];
+        }
+
+        Util::mwMkdir($targetDir);
+
         $convert = SoundFilesConf::convertAudioFile(
-            $targetWav,
+            $source,
             self::TARGET_FORMATS,
             [
                 'normalize'   => false,
@@ -94,36 +150,47 @@ class PromoteToTmpAction
                 'force'       => true,
                 'output_dir'  => $targetDir,
                 'base_name'   => $baseName,
-                'sample_rate' => (int)($row->sample_rate ?? 22050) ?: 22050,
+                'sample_rate' => $sampleRate,
                 'bitrate'     => '128k',
             ]
         );
 
         if (empty($convert['success'])) {
-            @unlink($targetWav);
-            $res->messages['error'][] = (string)($convert['error'] ?? 'Audio conversion failed');
-            $res->httpCode = 500;
-            return $res;
+            $error = (string)($convert['error'] ?? '');
+            if ($error === '') {
+                foreach ((array)($convert['formats'] ?? []) as $fmt => $info) {
+                    if (($info['status'] ?? '') === 'failed' && !empty($info['error'])) {
+                        $error = "$fmt: " . (string)$info['error'];
+                        break;
+                    }
+                }
+            }
+            // Roll back: drop any partial output so a retry starts clean.
+            foreach (self::TARGET_FORMATS as $fmt) {
+                @unlink($targetDir . '/' . $baseName . '.' . $fmt);
+            }
+            return [
+                'success' => false,
+                'message' => $error !== '' ? $error : 'Audio conversion failed',
+            ];
         }
 
         $mp3Path = $convert['formats']['mp3']['path'] ?? null;
         if ($mp3Path === null || !is_file($mp3Path)) {
-            $res->messages['error'][] = 'MP3 conversion missing — preview not available';
-            $res->httpCode = 500;
-            return $res;
+            return [
+                'success' => false,
+                'message' => 'MP3 conversion missing — preview not available',
+            ];
         }
 
-        $res->success = true;
-        $res->httpCode = 200;
-        $res->data = [
-            'path'         => $mp3Path,
-            'mp3_path'     => $mp3Path,
-            'wav_path'     => $targetWav,
-            'basename'     => $baseName,
-            'category'     => $category,
-            'phrase_id'    => (int)$row->id,
+        return [
+            'success'   => true,
+            'mp3_path'  => (string)$mp3Path,
+            'wav_path'  => $targetDir . '/' . $baseName . '.wav',
+            'basename'  => $baseName,
+            'category'  => (string)($payload['category'] ?? ''),
+            'phrase_id' => (int)($payload['phrase_id'] ?? 0),
         ];
-        return $res;
     }
 
     private static function resolveTargetDir(string $category): string
@@ -139,7 +206,7 @@ class PromoteToTmpAction
      * Picks a sanitised, collision-free basename inside the target directory.
      *
      * If the user has not supplied an explicit name, we derive one from the
-     * first 120 chars of the phrase text — transliterated to ASCII so a
+     * first 200 chars of the phrase text — transliterated to ASCII so a
      * Russian phrase like "Здравствуйте, добрый день" lands on disk as
      * `Zdravstvujte_dobryj_den.wav` instead of an opaque `phrase-12.wav`.
      *
@@ -156,7 +223,6 @@ class PromoteToTmpAction
         if ($base === '') {
             $base = 'phrase-' . (int)$row->id;
         }
-        // Trim to leave room for the "_99" suffix and the file extension.
         if (mb_strlen($base) > 120) {
             $base = (string)mb_substr($base, 0, 120);
             $base = trim($base, '_-');
@@ -207,10 +273,6 @@ class PromoteToTmpAction
         return $ascii;
     }
 
-    /**
-     * Collapses whitespace and forbidden characters into a single underscore
-     * and trims leading / trailing separators.
-     */
     private static function sanitizeBaseName(string $value): string
     {
         $value = (string)preg_replace('/\s+/u', '_', $value);

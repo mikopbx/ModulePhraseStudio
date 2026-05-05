@@ -49,8 +49,14 @@ return [
     'module_phrase_studio_VoicesColActions'  => 'Actions',
     'module_phrase_studio_VoiceInstalled'    => 'Installed',
     'module_phrase_studio_VoiceNotInstalled' => 'Not installed',
+    'module_phrase_studio_VoiceInstalling'   => 'Downloading…',
+    'module_phrase_studio_VoiceFailed'       => 'Install failed',
     'module_phrase_studio_VoiceInstall'      => 'Install',
+    'module_phrase_studio_VoiceRetry'        => 'Retry',
     'module_phrase_studio_VoiceDelete'       => 'Remove',
+    'module_phrase_studio_VoiceInstallQueued_Toast' => 'Voice download queued — installing in the background',
+    'module_phrase_studio_VoiceInstallTimeout'      => 'Voice download is taking longer than expected — refresh the page to check status.',
+    'module_phrase_studio_VoiceNotInstalledError'   => 'Voice is not installed:',
 
     // Engine tab
     'module_phrase_studio_EngineHint'        => 'The Piper binary is downloaded from GitHub the first time you enable the module.',
