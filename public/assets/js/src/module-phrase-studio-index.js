@@ -207,6 +207,7 @@ const phraseStudioIndex = {
 
     renderVoicesTable() {
         const $tbody = $('#phrase-studio-voices-table tbody').empty();
+        const installingVoiceIds = [];
         phraseStudioIndex.state.voices.forEach((voice) => {
             const $row = $('<tr>').attr('data-voice', voice.voice_id);
             const flag = phraseStudioIndex.flagClassFor(voice.language);
@@ -225,6 +226,7 @@ const phraseStudioIndex = {
             if (status === 'installed') {
                 $statusCell.html(`<span class="ui green label">${globalTranslate.module_phrase_studio_VoiceInstalled}</span>`);
             } else if (status === 'installing') {
+                installingVoiceIds.push(voice.voice_id);
                 $statusCell.html(
                     '<div class="ui active inline mini loader"></div> '
                     + `<span class="ui yellow label">${globalTranslate.module_phrase_studio_VoiceInstalling}</span>`
@@ -277,11 +279,11 @@ const phraseStudioIndex = {
             $tbody.append($row);
         });
 
-        // Re-arm polling for any voice the server still reports as
-        // 'installing' (covers page reloads mid-install).
-        phraseStudioIndex.state.voices
-            .filter((v) => v.install_status === 'installing')
-            .forEach((v) => phraseStudioIndex.scheduleInstallPoll(v.voice_id));
+        // If the page opened mid-install, re-arm bounded polling for those
+        // rows so the spinner resolves when the detached worker finishes.
+        installingVoiceIds.forEach((voiceId) => {
+            phraseStudioIndex.scheduleInstallPoll(voiceId);
+        });
     },
 
     renderVoicePicker() {
