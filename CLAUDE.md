@@ -134,11 +134,11 @@ Source: `public/assets/js/src/module-phrase-studio-index.js`
 Compiled: `public/assets/js/module-phrase-studio-index.js`
 
 ```bash
-cd /Volumes/DevDisk/Developement/mikopbx/MikoPBXUtils
-node node_modules/.bin/babel \
-  /path/to/public/assets/js/src/module-phrase-studio-index.js \
-  --out-file /path/to/public/assets/js/module-phrase-studio-index.js \
-  --source-maps inline
+../../MikoPBXUtils/node_modules/.bin/babel \
+  public/assets/js/src/module-phrase-studio-index.js \
+  --out-dir public/assets/js \
+  --source-maps inline \
+  --presets airbnb
 ```
 
 Mikopbx serves `cache/{Module}/{file}.js` via a symlink to the module's
