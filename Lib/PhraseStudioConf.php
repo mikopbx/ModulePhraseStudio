@@ -9,8 +9,11 @@ declare(strict_types=1);
 
 namespace Modules\ModulePhraseStudio\Lib;
 
+use MikoPBX\Core\System\Processes;
 use MikoPBX\Core\System\Upgrade\UpdateDatabase;
+use MikoPBX\Core\System\Util;
 use MikoPBX\Modules\Config\ConfigClass;
+use Modules\ModulePhraseStudio\Lib\Engines\PiperEngine;
 use Modules\ModulePhraseStudio\Models\PhraseStudioVoices;
 
 /**
@@ -40,9 +43,9 @@ class PhraseStudioConf extends ConfigClass
     /**
      * Called once after the module is enabled in the admin cabinet.
      *
-     * Ensures the persistent storage subdirectories exist. We do not
-     * download anything here — engine binary and voice models are
-     * fetched on demand from the Studio UI.
+     * Ensures the persistent storage subdirectories exist, reconciles the
+     * SQLite schema, and (if missing) kicks off a detached download of the
+     * Piper engine binary so the module is usable straight after enable.
      */
     public function onAfterModuleEnable(): void
     {
@@ -61,6 +64,25 @@ class PhraseStudioConf extends ConfigClass
         } catch (\Throwable $e) {
             // Don't block enable on a schema reconcile failure — the rest of
             // the module still works and an admin can investigate via syslog.
+        }
+
+        // Auto-bootstrap the Piper binary if it isn't already on disk.
+        // Without this, every fresh install greets the user with a useless
+        // "Engine not installed" page and a manual button. Same detached-
+        // runner pattern as voice install — REST returns immediately, the
+        // ~25 MB tarball downloads in the background, and the Engine tab
+        // status flips to "installed" once the binary lands at its final
+        // path. PiperEngine::isInstalled() is file-presence based, so a
+        // half-finished download never falsely reports success.
+        if (!(new PiperEngine())->isInstalled()) {
+            $php    = Util::which('php');
+            $script = __DIR__ . '/Cli/install-engine.php';
+            if ($php !== '' && is_file($script)) {
+                Processes::mwExecBg(
+                    sprintf('%s -f %s', escapeshellarg($php), escapeshellarg($script)),
+                    '/dev/null'
+                );
+            }
         }
     }
 
