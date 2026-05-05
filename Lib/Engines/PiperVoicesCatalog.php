@@ -9,27 +9,113 @@ declare(strict_types=1);
 
 namespace Modules\ModulePhraseStudio\Lib\Engines;
 
+use Modules\ModulePhraseStudio\Lib\PhraseStudioMain;
+
 /**
- * Static catalogue of Piper voices that can be downloaded on demand.
+ * Catalogue of Piper voices that can be downloaded on demand.
  *
- * Voice models live on Hugging Face under
+ * Two-tier source:
+ *   1. **Authoritative.** `db/voices-catalog.json`, mirrored from the
+ *      official Piper inventory at
+ *      https://huggingface.co/rhasspy/piper-voices/raw/main/voices.json
+ *      Refreshed by `Lib/Cli/refresh-voices-catalog.php` on module enable
+ *      and on demand. Carries 150+ voices with metadata, file sizes and
+ *      MD5 digests; that script normalises the upstream shape into the
+ *      flat row layout this class produces.
+ *   2. **Hardcoded fallback.** A curated subset shipped in the repo so
+ *      a fresh install with no network access still has something usable.
+ *      Used when the JSON cache is missing, unreadable, empty, or older
+ *      than `CACHE_STALE_SECONDS` (then we still serve it but a refresh
+ *      is queued elsewhere).
+ *
+ * Voice URLs follow Piper's published path:
  *   https://huggingface.co/rhasspy/piper-voices/resolve/main/{lang}/{lang_code}/{name}/{quality}/{voice_id}.onnx
- *
- * For a first cut we ship a curated subset that covers the languages
- * MikoPBX already supports through its language packs. The catalogue
- * is intentionally hand-maintained so that the UI does not have to
- * call out to Hugging Face just to render the voice list.
  *
  * @package Modules\ModulePhraseStudio\Lib\Engines
  */
 final class PiperVoicesCatalog
 {
-    private const HUGGINGFACE_BASE = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
+    public const string HUGGINGFACE_BASE = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
+    public const string UPSTREAM_INDEX_URL = 'https://huggingface.co/rhasspy/piper-voices/raw/main/voices.json';
+
+    /** Where the refresh runner writes the normalised cache. */
+    public static function cachePath(): string
+    {
+        return PhraseStudioMain::moduleStorage() . '/voices-catalog.json';
+    }
 
     /**
      * @return array<int, array<string, mixed>> Voice catalogue entries, sorted by language.
      */
     public static function all(): array
+    {
+        $cached = self::loadCache();
+        if ($cached !== null) {
+            return $cached;
+        }
+        return self::sortRows(self::fallbackEntries());
+    }
+
+    /**
+     * Looks up a single voice by voice_id.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function find(string $voiceId): ?array
+    {
+        foreach (self::all() as $voice) {
+            if ($voice['voice_id'] === $voiceId) {
+                return $voice;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Reads + validates the cached normalised catalog.
+     *
+     * Tolerates missing / corrupt files: returns null, callers fall back
+     * to `fallbackEntries()`. The cache is treated as authoritative even
+     * when stale (no TTL gating here) — a separate refresh runner keeps
+     * it fresh; serving slightly old data is better than serving the
+     * thin hardcoded fallback while a refresh is pending.
+     *
+     * @return array<int, array<string, mixed>>|null
+     */
+    private static function loadCache(): ?array
+    {
+        $path = self::cachePath();
+        if (!is_file($path)) {
+            return null;
+        }
+        $raw = @file_get_contents($path);
+        if ($raw === false || $raw === '') {
+            return null;
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded) || empty($decoded)) {
+            return null;
+        }
+        // Defence against partial files: each row must carry the fields
+        // GetListAction shapes, otherwise drop and use the fallback.
+        foreach ($decoded as $row) {
+            if (!isset($row['voice_id'], $row['language'], $row['model_url'], $row['config_url'])) {
+                return null;
+            }
+        }
+        return $decoded;
+    }
+
+    /**
+     * Curated subset shipped in the repo for offline / first-boot use.
+     * Edit this list when adding voices that should be available even
+     * without an upstream refresh — but the upstream cache, when present,
+     * supersedes this entirely so a curation tweak alone does not change
+     * what users see in production.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private static function fallbackEntries(): array
     {
         $entries = [
             // Russian
@@ -84,50 +170,42 @@ final class PiperVoicesCatalog
             ['hu', 'hu_HU', 'anna',      'medium', 22050, 'Hungarian',    'Anna'],
             ['ro', 'ro_RO', 'mihai',     'medium', 22050, 'Romanian',     'Mihai'],
             ['tr', 'tr_TR', 'dfki',      'medium', 22050, 'Turkish',      'DFKI'],
-            ['el', 'el_GR', 'rapunzel',  'low',    16000, 'Greek',        'Rapunzel'],
+            ['el', 'el_GR', 'rapunzelina', 'low',  16000, 'Greek',        'Rapunzelina'],
             ['ka', 'ka_GE', 'natia',     'medium', 22050, 'Georgian',     'Natia'],
             ['zh', 'zh_CN', 'huayan',    'medium', 22050, 'Chinese',      'Huayan'],
         ];
 
-        $catalog = [];
+        $rows = [];
         foreach ($entries as $row) {
             [$lang, $locale, $name, $quality, $rate, $langLabel, $voiceLabel] = $row;
             $voiceId = sprintf('%s-%s-%s', $locale, $name, $quality);
-            $catalog[] = [
-                'voice_id'        => $voiceId,
-                'language'        => str_replace('_', '-', strtolower($locale)),
-                'language_label'  => $langLabel,
-                'voice_name'      => $voiceLabel,
-                'quality'         => $quality,
-                'sample_rate'     => $rate,
-                'model_url'       => self::buildUrl($lang, $locale, $name, $quality, $voiceId, '.onnx'),
-                'config_url'      => self::buildUrl($lang, $locale, $name, $quality, $voiceId, '.onnx.json'),
+            $rows[] = [
+                'voice_id'       => $voiceId,
+                'language'       => str_replace('_', '-', strtolower($locale)),
+                'language_label' => $langLabel,
+                'voice_name'     => $voiceLabel,
+                'quality'        => $quality,
+                'sample_rate'    => $rate,
+                'model_url'      => self::buildUrl($lang, $locale, $name, $quality, $voiceId, '.onnx'),
+                'config_url'     => self::buildUrl($lang, $locale, $name, $quality, $voiceId, '.onnx.json'),
             ];
         }
-
-        usort($catalog, static fn(array $a, array $b): int =>
-            strcmp($a['language'] . $a['voice_name'], $b['language'] . $b['voice_name'])
-        );
-
-        return $catalog;
+        return $rows;
     }
 
     /**
-     * Looks up a single voice by voice_id.
-     *
-     * @return array<string, mixed>|null
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
      */
-    public static function find(string $voiceId): ?array
+    private static function sortRows(array $rows): array
     {
-        foreach (self::all() as $voice) {
-            if ($voice['voice_id'] === $voiceId) {
-                return $voice;
-            }
-        }
-        return null;
+        usort($rows, static fn(array $a, array $b): int =>
+            strcmp($a['language'] . $a['voice_name'], $b['language'] . $b['voice_name'])
+        );
+        return $rows;
     }
 
-    private static function buildUrl(
+    public static function buildUrl(
         string $lang,
         string $locale,
         string $name,
