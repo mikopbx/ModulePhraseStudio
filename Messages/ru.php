@@ -65,6 +65,7 @@ return [
     'module_phrase_studio_EngineVersion'     => 'Версия',
     'module_phrase_studio_EngineInstallHint' => 'Нажмите «Установить», чтобы скачать архитектурно-совместимый бинарь и распаковать его в db/piper/.',
     'module_phrase_studio_EngineInstall'     => 'Установить движок',
+    'module_phrase_studio_EngineUpdate'      => 'Обновить движок',
     'module_phrase_studio_EngineUninstall'   => 'Удалить движок',
 
     // History tab

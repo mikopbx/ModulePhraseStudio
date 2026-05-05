@@ -65,6 +65,7 @@ return [
     'module_phrase_studio_EngineVersion'     => 'Version',
     'module_phrase_studio_EngineInstallHint' => 'Click "Install" to download the architecture-matched binary and extract it into db/piper/.',
     'module_phrase_studio_EngineInstall'     => 'Install engine',
+    'module_phrase_studio_EngineUpdate'      => 'Update engine',
     'module_phrase_studio_EngineUninstall'   => 'Uninstall engine',
 
     // History tab

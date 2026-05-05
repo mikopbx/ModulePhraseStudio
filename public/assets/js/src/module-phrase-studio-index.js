@@ -96,15 +96,27 @@ const phraseStudioIndex = {
         const $box = $('#phrase-studio-engine-status').empty();
         const data = phraseStudioIndex.state.engine || {};
         if (data.installed) {
+            // Once the binary is on disk we offer "Update engine" instead of
+            // an Uninstall — re-running install() overwrites the tarball with
+            // the pinned RELEASE_VERSION (or whatever the catalog now points
+            // at), so the same button doubles as a refresh path. Removing the
+            // Uninstall button from the UI is intentional: users wanted a
+            // refresh, not a wipe; full removal still works via DELETE /engine
+            // for anyone scripting against the API.
             $box.append(
                 $('<div>').addClass('ui positive message')
                     .append($('<div>').addClass('header').text(globalTranslate.module_phrase_studio_EngineInstalled))
                     .append($('<p>').text(`${globalTranslate.module_phrase_studio_EngineVersion}: ${data.version || '—'}`))
                     .append(
                         $('<button>')
-                            .addClass('ui small red basic button')
-                            .text(globalTranslate.module_phrase_studio_EngineUninstall)
-                            .on('click', phraseStudioIndex.onEngineUninstall)
+                            .addClass('ui small basic button')
+                            .text(globalTranslate.module_phrase_studio_EngineUpdate)
+                            // Update path posts {force: true} so the action
+                            // bypasses its `isInstalled()` shortcut and actually
+                            // re-downloads the pinned RELEASE_VERSION. Without
+                            // the flag the click would be a no-op once the
+                            // engine is already on disk.
+                            .on('click', phraseStudioIndex.onEngineUpdate)
                     )
             );
         } else {
@@ -123,11 +135,23 @@ const phraseStudioIndex = {
     },
 
     onEngineInstall() {
-        const $btn = $(this);
+        phraseStudioIndex.dispatchEngineInstall($(this), false);
+    },
+
+    onEngineUpdate() {
+        phraseStudioIndex.dispatchEngineInstall($(this), true);
+    },
+
+    dispatchEngineInstall($btn, force) {
         $btn.addClass('loading disabled');
         $.ajax({
             url: phraseStudioIndex.api.engineInstall,
             method: 'POST',
+            // POST body is required for `force` to land on the action's
+            // $data array; the action runs `filter_var(..., FILTER_VALIDATE_BOOLEAN)`
+            // so the JSON literal `true` arrives as PHP true, not "1".
+            data: JSON.stringify({force: !!force}),
+            contentType: 'application/json',
             dataType: 'json',
         }).done((response) => {
             $btn.removeClass('loading disabled');
@@ -141,21 +165,12 @@ const phraseStudioIndex = {
         });
     },
 
-    onEngineUninstall() {
-        const $btn = $(this);
-        $btn.addClass('loading disabled');
-        $.ajax({
-            url: phraseStudioIndex.api.engine,
-            method: 'DELETE',
-            dataType: 'json',
-        }).done(() => {
-            $btn.removeClass('loading disabled');
-            phraseStudioIndex.refreshEngine();
-        }).fail(() => {
-            $btn.removeClass('loading disabled');
-            UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorEngineUninstall);
-        });
-    },
+    /** Stash for the most recent history payload so we can re-render it
+     *  once the voices catalogue arrives (race-fix: refreshVoices and
+     *  refreshHistory fire in parallel on init; when history wins first
+     *  the rows render with raw voice_ids until voices catch up).
+     */
+    lastHistoryRows: [],
 
     refreshVoices() {
         $.ajax({
@@ -166,6 +181,11 @@ const phraseStudioIndex = {
             phraseStudioIndex.state.voices = (response && response.data) || [];
             phraseStudioIndex.renderVoicesTable();
             phraseStudioIndex.renderVoicePicker();
+            // If history already painted with raw voice_ids (parallel init
+            // race), repaint now that we have the catalogue for flag lookup.
+            if (phraseStudioIndex.lastHistoryRows.length > 0) {
+                phraseStudioIndex.renderHistory(phraseStudioIndex.lastHistoryRows);
+            }
         }).fail(() => {
             UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorVoicesList);
         });
@@ -473,7 +493,9 @@ const phraseStudioIndex = {
             method: 'GET',
             dataType: 'json',
         }).done((response) => {
-            phraseStudioIndex.renderHistory((response && response.data) || []);
+            const rows = (response && response.data) || [];
+            phraseStudioIndex.lastHistoryRows = rows;
+            phraseStudioIndex.renderHistory(rows);
             if (typeof callback === 'function') {
                 callback();
             }
@@ -575,6 +597,27 @@ const phraseStudioIndex = {
         });
     },
 
+    /**
+     * Resolves a phrase row's voice_id into a "🇷🇺 Irina (medium)" string with
+     * the matching Semantic UI flag. Falls back to the raw voice_id when the
+     * voice is not in the loaded catalogue (e.g. user removed the voice but
+     * the phrase row from before is still in history).
+     */
+    formatVoiceLabel(voiceId) {
+        const escAttr = (s) => $('<div>').text(s).html().replace(/"/g, '&quot;');
+        if (!voiceId) return '<span class="ui label">—</span>';
+        const voice = phraseStudioIndex.state.voices.find((v) => v.voice_id === voiceId);
+        if (!voice) {
+            // Voice no longer installed — keep raw id so the user can
+            // identify which historic phrase used what model.
+            return $('<div>').text(voiceId).html();
+        }
+        const flag = phraseStudioIndex.flagClassFor(voice.language);
+        const flagHtml = flag ? `<i class="${flag} flag" title="${escAttr(voice.language_label)}"></i>` : '';
+        const label = `${voice.voice_name} (${voice.quality})`;
+        return `${flagHtml}${$('<div>').text(label).html()}`;
+    },
+
     renderHistoryRow(row) {
         const created   = row.created_at ? new Date(row.created_at * 1000).toLocaleString() : '—';
         const fullText  = row.text || '';
@@ -593,7 +636,7 @@ const phraseStudioIndex = {
             <td class="phrase-reuse" style="cursor:pointer" title="${escAttr(tooltip)}">
                 <i class="file audio outline icon"></i>${$('<div>').text(shortText).html()}
             </td>
-            <td>${$('<div>').text(voiceId).html()}</td>
+            <td>${phraseStudioIndex.formatVoiceLabel(voiceId)}</td>
             <td class="six wide cdr-player hide-on-mobile">
                 <table>
                     <tr>
