@@ -13,8 +13,9 @@ App/
     IndexTabs/{tabStudio,tabVoices,tabEngine,tabHistory}.volt
 Lib/
   Engines/{EngineInterface,PiperEngine,PiperVoicesCatalog}.php
-  PhraseStudioConf.php                           ConfigClass — onAfterModuleEnable
-  PhraseStudioMain.php                           business logic (engine bootstrap, generate, prune)
+  PhraseStudioConf.php                           ConfigClass — onAfterModuleEnable + schema migration
+  PhraseStudioMain.php                           business logic (engine bootstrap, generate, install, prune)
+  Cli/install-voice.php                          one-shot detached runner for voice downloads
   RestAPI/{Engine,Voices,Phrases}/
     Controller.php                               #[ApiResource] / #[HttpMapping]
     Processor.php                                action dispatch
@@ -53,6 +54,43 @@ regardless of the names listed in `#[HttpMapping]`. Custom actions reachable
 only via the `:action` URL suffix. **Do not rename Processor cases away from
 the `getList / getRecord / create / update / patch / delete` set without
 exposing them through `:custom`.**
+
+## Sync vs. detached job split
+
+The module follows the example pattern (Modules/EXAMPLES/REST-API/
+ModuleExampleRestAPIv3): **no persistent module worker**. REST handlers
+run inline inside the system `WorkerApiCommands`; long-running ops are
+handed to a one-shot detached php process.
+
+| Operation | Latency | Where it runs |
+|-----------|---------|---------------|
+| Cache-hit phrase lookup | < 50 ms | Inline (DB only) |
+| Synthesize on cache miss | 1–3 s | Inline (Piper child + sox) |
+| Promote (ffmpeg ×7) | 1–2 s | Inline (`SoundFilesConf::convertAudioFile`) |
+| Voice install (curl 30–60 MB ×2 files) | 30 s – 2 min | `Lib/Cli/install-voice.php` via `Processes::mwExecBg` |
+
+Synthesize and promote both fit comfortably inside `WorkerApiCommands`'
+30-second sync timeout, so no offload is needed. Voice install does NOT
+fit — `installVoice()` writes a placeholder row with
+`install_status='installing'` and detaches a one-shot PHP runner via
+nohup. The runner calls `executeVoiceInstall($voiceId)` and exits;
+status updates land on the row, the UI polls `GET /voices`.
+
+We deliberately do not register a Beanstalk worker (no
+`getModuleWorkers()`) because:
+  - voice install is a rare, one-time op — keeping a daemon idle is wasteful;
+  - synthesize/promote already fit the request budget with no offload;
+  - the example module shows the canonical "no module worker" pattern.
+
+### convertAudioFile collision trap
+
+`SoundFilesConf::convertAudioFile()` MUST be called with the cached WAV
+in `db/phrases/` as its `$sourceFile`, not with a pre-copied file under
+`output_dir/$baseName.wav`. For the `wav` target, ffmpeg would otherwise
+read and write the same path and exit 234 ("input/output is same file"),
+surfacing as "Audio conversion failed" via `convertAudioFile()`'s plain
+exit-code reporting. `executePromotion()` enforces this — keep that
+constraint when extending the action.
 
 ## Synthesis quirks
 

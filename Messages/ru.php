@@ -49,8 +49,14 @@ return [
     'module_phrase_studio_VoicesColActions'  => 'Действия',
     'module_phrase_studio_VoiceInstalled'    => 'Установлен',
     'module_phrase_studio_VoiceNotInstalled' => 'Не установлен',
+    'module_phrase_studio_VoiceInstalling'   => 'Скачивается…',
+    'module_phrase_studio_VoiceFailed'       => 'Ошибка установки',
     'module_phrase_studio_VoiceInstall'      => 'Загрузить',
+    'module_phrase_studio_VoiceRetry'        => 'Повторить',
     'module_phrase_studio_VoiceDelete'       => 'Удалить',
+    'module_phrase_studio_VoiceInstallQueued_Toast' => 'Загрузка голоса поставлена в очередь — продолжаем скачивание в фоне',
+    'module_phrase_studio_VoiceInstallTimeout'      => 'Загрузка голоса идёт дольше ожидаемого — обновите страницу, чтобы увидеть итог.',
+    'module_phrase_studio_VoiceNotInstalledError'   => 'Голос не установлен:',
 
     // Engine tab
     'module_phrase_studio_EngineHint'        => 'Бинарь Piper загружается с GitHub при первом включении модуля.',

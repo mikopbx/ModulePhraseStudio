@@ -22,7 +22,23 @@ const phraseStudioIndex = {
         voices: [],
         soundPlayers: {},
         historyDataTable: null,
+        // voice_id → { startedAt, attempts, timer } for installs in flight.
+        // Tracking attempts client-side lets us cap polling at ~10 minutes
+        // even if the worker silently dies, instead of spinning forever.
+        installPolls: {},
     },
+
+    // Voice install polling: 3-second tick × 500 attempts ≈ 25 minutes.
+    // The detached `install-voice.php` runner uses `curl --max-time 600`
+    // per asset (×2 files = 20-minute hard backend ceiling). The poll cap
+    // must sit ABOVE that ceiling — otherwise a slow-but-still-running
+    // download is mistaken for a crash, the JS bails, and the user is left
+    // with a stuck UI even though the worker is still writing the file.
+    // Beyond 25 minutes we hand recovery off to the server-side sweeper
+    // (30 min, GetListAction::sweepStaleInstalls), which flips the row to
+    // `failed` and the next refresh shows the standard Retry button.
+    INSTALL_POLL_INTERVAL_MS: 3000,
+    INSTALL_POLL_MAX_ATTEMPTS: 500,
 
     initialize() {
         $('#phrase-studio-tab-menu .item').tab();
@@ -155,19 +171,57 @@ const phraseStudioIndex = {
         });
     },
 
+    /**
+     * Translates a Piper language tag (e.g. 'ru-ru', 'en-us', 'pt-br')
+     * into a Semantic UI flag class. The second segment is already an
+     * ISO 3166-1 alpha-2 country code in the catalogue, so we just
+     * extract and lowercase it. Unknown tags fall back to no flag.
+     */
+    flagClassFor(language) {
+        if (!language) return '';
+        const parts = String(language).toLowerCase().split('-');
+        const cc = parts[parts.length - 1];
+        if (!cc || cc.length !== 2) return '';
+        return cc;
+    },
+
     renderVoicesTable() {
         const $tbody = $('#phrase-studio-voices-table tbody').empty();
         phraseStudioIndex.state.voices.forEach((voice) => {
-            const $row = $('<tr>');
-            $row.append($('<td>').text(`${voice.language_label} (${voice.language})`));
+            const $row = $('<tr>').attr('data-voice', voice.voice_id);
+            const flag = phraseStudioIndex.flagClassFor(voice.language);
+            const $lang = $('<td>');
+            if (flag) {
+                $lang.append(`<i class="${flag} flag"></i>`);
+            }
+            $lang.append(document.createTextNode(`${voice.language_label} (${voice.language})`));
+            $row.append($lang);
             $row.append($('<td>').text(voice.voice_name));
             $row.append($('<td>').text(voice.quality));
             $row.append($('<td>').text(`${voice.sample_rate} Hz`));
-            $row.append($('<td>').html(voice.installed
-                ? `<span class="ui green label">${globalTranslate.module_phrase_studio_VoiceInstalled}</span>`
-                : `<span class="ui label">${globalTranslate.module_phrase_studio_VoiceNotInstalled}</span>`));
+
+            const status = voice.install_status || (voice.installed ? 'installed' : '');
+            const $statusCell = $('<td>');
+            if (status === 'installed') {
+                $statusCell.html(`<span class="ui green label">${globalTranslate.module_phrase_studio_VoiceInstalled}</span>`);
+            } else if (status === 'installing') {
+                $statusCell.html(
+                    '<div class="ui active inline mini loader"></div> '
+                    + `<span class="ui yellow label">${globalTranslate.module_phrase_studio_VoiceInstalling}</span>`
+                );
+            } else if (status === 'failed') {
+                const err = voice.install_error || '';
+                $statusCell.html(
+                    `<span class="ui red label" title="${$('<div>').text(err).html()}">`
+                    + `${globalTranslate.module_phrase_studio_VoiceFailed}</span>`
+                );
+            } else {
+                $statusCell.html(`<span class="ui label">${globalTranslate.module_phrase_studio_VoiceNotInstalled}</span>`);
+            }
+            $row.append($statusCell);
+
             const $actions = $('<td>').addClass('right aligned');
-            if (voice.installed) {
+            if (status === 'installed') {
                 $actions.append(
                     $('<button>').addClass('ui small basic red icon button')
                         .attr('data-voice', voice.voice_id)
@@ -175,11 +229,26 @@ const phraseStudioIndex = {
                         .append('<i class="trash icon"></i>')
                         .on('click', phraseStudioIndex.onVoiceUninstall)
                 );
+            } else if (status === 'installing') {
+                // While the worker is downloading we lock the action cell —
+                // showing a disabled spinner makes the in-flight state read
+                // clearly and prevents double-publish on impatient clicks.
+                $actions.append(
+                    $('<button>').addClass('ui small primary icon button loading disabled')
+                        .attr('data-voice', voice.voice_id)
+                        .attr('title', globalTranslate.module_phrase_studio_VoiceInstalling)
+                        .append('<i class="download icon"></i>')
+                );
             } else {
+                // 'failed' and not-installed share the same action button —
+                // both result in publishing a fresh install_voice job.
+                const label = status === 'failed'
+                    ? globalTranslate.module_phrase_studio_VoiceRetry
+                    : globalTranslate.module_phrase_studio_VoiceInstall;
                 $actions.append(
                     $('<button>').addClass('ui small primary icon button')
                         .attr('data-voice', voice.voice_id)
-                        .attr('title', globalTranslate.module_phrase_studio_VoiceInstall)
+                        .attr('title', label)
                         .append('<i class="download icon"></i>')
                         .on('click', phraseStudioIndex.onVoiceInstall)
                 );
@@ -187,6 +256,12 @@ const phraseStudioIndex = {
             $row.append($actions);
             $tbody.append($row);
         });
+
+        // Re-arm polling for any voice the server still reports as
+        // 'installing' (covers page reloads mid-install).
+        phraseStudioIndex.state.voices
+            .filter((v) => v.install_status === 'installing')
+            .forEach((v) => phraseStudioIndex.scheduleInstallPoll(v.voice_id));
     },
 
     renderVoicePicker() {
@@ -199,11 +274,17 @@ const phraseStudioIndex = {
             $select.append($('<option>').val('').text(globalTranslate.module_phrase_studio_PickerEmpty));
         } else {
             installed.forEach((voice) => {
-                $select.append(
-                    $('<option>')
-                        .val(voice.voice_id)
-                        .text(`${voice.language_label} — ${voice.voice_name} (${voice.quality})`)
-                );
+                const flag = phraseStudioIndex.flagClassFor(voice.language);
+                // Semantic UI dropdown reads `data-text` for the display string
+                // and renders a flag from `data-flag` when present, so the chosen
+                // option keeps the icon after selection.
+                const $opt = $('<option>')
+                    .val(voice.voice_id)
+                    .text(`${voice.language_label} — ${voice.voice_name} (${voice.quality})`);
+                if (flag) {
+                    $opt.attr('data-flag', flag);
+                }
+                $select.append($opt);
             });
         }
         $select.dropdown({fullTextSearch: true});
@@ -216,6 +297,9 @@ const phraseStudioIndex = {
     onVoiceInstall() {
         const $btn = $(this);
         const voiceId = $btn.data('voice');
+        // Lock the button immediately so impatient double-clicks can't queue
+        // a duplicate install. The button stays disabled until refreshVoices
+        // re-renders the row from the new install_status.
         $btn.addClass('loading disabled');
         $.ajax({
             url: phraseStudioIndex.api.voiceInstall,
@@ -230,11 +314,89 @@ const phraseStudioIndex = {
                     || globalTranslate.module_phrase_studio_ErrorVoiceInstall);
                 return;
             }
-            UserMessage.showInformation(`${globalTranslate.module_phrase_studio_VoiceInstalled_Toast}: ${voiceId}`);
+            // Backend returns 202 with install_status='installing' before the
+            // worker actually runs curl. The row spinner + "Downloading…" label
+            // and the disabled action button already convey the in-flight state
+            // — no toast needed.
             phraseStudioIndex.refreshVoices();
+            phraseStudioIndex.scheduleInstallPoll(voiceId);
         }).fail(() => {
             $btn.removeClass('loading disabled');
             UserMessage.showMultiString(globalTranslate.module_phrase_studio_ErrorVoiceInstall);
+        });
+    },
+
+    /**
+     * Polls GET /voices for the given voice_id until install_status flips
+     * out of 'installing'. Re-entrant: scheduling the same voice while a
+     * timer is already pending is a no-op (covers double-renders triggered
+     * by tab switches and concurrent refreshVoices calls).
+     */
+    scheduleInstallPoll(voiceId) {
+        const polls = phraseStudioIndex.state.installPolls;
+        if (polls[voiceId]) return;
+        polls[voiceId] = {startedAt: Date.now(), attempts: 0};
+        polls[voiceId].timer = setInterval(
+            () => phraseStudioIndex.tickInstallPoll(voiceId),
+            phraseStudioIndex.INSTALL_POLL_INTERVAL_MS
+        );
+    },
+
+    cancelInstallPoll(voiceId) {
+        const entry = phraseStudioIndex.state.installPolls[voiceId];
+        if (!entry) return;
+        clearInterval(entry.timer);
+        delete phraseStudioIndex.state.installPolls[voiceId];
+    },
+
+    tickInstallPoll(voiceId) {
+        const entry = phraseStudioIndex.state.installPolls[voiceId];
+        if (!entry) return;
+        entry.attempts += 1;
+        if (entry.attempts > phraseStudioIndex.INSTALL_POLL_MAX_ATTEMPTS) {
+            phraseStudioIndex.cancelInstallPoll(voiceId);
+            // We deliberately do NOT DELETE the row here: the cap is set
+            // above the backend's worst-case curl window, but a genuinely
+            // slow install can still be writing files. Yanking the row
+            // would race with the worker's final save (orphan .onnx) and
+            // erase a real success a few seconds before it lands. Just
+            // surface a hint and let the server-side sweeper (30 min,
+            // GetListAction::sweepStaleInstalls) flip the row to `failed`
+            // if the download actually died — the UI then shows Retry.
+            UserMessage.showMultiString(globalTranslate.module_phrase_studio_VoiceInstallTimeout);
+            return;
+        }
+        $.ajax({
+            url: phraseStudioIndex.api.voices,
+            method: 'GET',
+            dataType: 'json',
+        }).done((response) => {
+            const list = (response && response.data) || [];
+            phraseStudioIndex.state.voices = list;
+            phraseStudioIndex.renderVoicesTable();
+            phraseStudioIndex.renderVoicePicker();
+            const voice = list.find((v) => v.voice_id === voiceId);
+            if (!voice) {
+                // Row vanished (user pressed Remove mid-install): drop the timer.
+                phraseStudioIndex.cancelInstallPoll(voiceId);
+                return;
+            }
+            if (voice.install_status === 'installed') {
+                phraseStudioIndex.cancelInstallPoll(voiceId);
+                // No toast — the row already turned green with the new status
+                // and the action button became Remove. Failures still toast,
+                // because install_error needs surfacing somewhere.
+                return;
+            }
+            if (voice.install_status === 'failed') {
+                phraseStudioIndex.cancelInstallPoll(voiceId);
+                const detail = voice.install_error
+                    ? `${globalTranslate.module_phrase_studio_ErrorVoiceInstall} ${voice.install_error}`
+                    : globalTranslate.module_phrase_studio_ErrorVoiceInstall;
+                UserMessage.showMultiString(detail);
+                return;
+            }
+            // status === 'installing' → keep ticking
         });
     },
 
@@ -242,12 +404,16 @@ const phraseStudioIndex = {
         const $btn = $(this);
         const voiceId = $btn.data('voice');
         $btn.addClass('loading disabled');
+        // Cancel any in-flight install poll for this voice — Remove on a
+        // 'failed' or 'installing' row should clear the placeholder cleanly.
+        phraseStudioIndex.cancelInstallPoll(voiceId);
         $.ajax({
             url: `${phraseStudioIndex.api.voices}/${encodeURIComponent(voiceId)}`,
             method: 'DELETE',
             dataType: 'json',
         }).done(() => {
-            UserMessage.showInformation(`${globalTranslate.module_phrase_studio_VoiceUninstalled_Toast}: ${voiceId}`);
+            // No toast — the row reverts to the not-installed label and shows
+            // an Install button, which is enough confirmation for a delete.
             phraseStudioIndex.refreshVoices();
         }).fail(() => {
             $btn.removeClass('loading disabled');

@@ -14,6 +14,11 @@ parameters:
     reportUnmatchedIgnoredErrors: false
     ignoreErrors:
         -
+            # Globals.php is resolved at runtime via the include_path set in
+            # /etc/php.d/50-mikopbx.ini (.:/usr/www/src/Core/Config). PHPStan
+            # has no way of knowing that — silence the static-analysis noise.
+            message: '#Path in require_once\(\) "Globals\.php" is not a file or it does not exist#'
+        -
             message: '#unknown class Phalcon\\Di#'
         -
             message: '#Class Phalcon\\Validation not found#'

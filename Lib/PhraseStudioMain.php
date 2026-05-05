@@ -34,6 +34,7 @@ class PhraseStudioMain
 {
     public const MODULE_UNIQUE_ID = 'ModulePhraseStudio';
 
+
     /**
      * Returns the persistent module directory (db/ symlink target).
      */
@@ -87,10 +88,34 @@ class PhraseStudioMain
     }
 
     /**
-     * Downloads voice model files (.onnx + .onnx.json) from Hugging Face
-     * into voicesDir() and registers the result in PhraseStudioVoices.
+     * Stages an asynchronous voice download.
      *
-     * @return array{success: bool, message: string, voice_id?: string}
+     * Inserts (or resets) the row to `install_status='installing'` and
+     * detaches a one-shot PHP script that runs `executeVoiceInstall()`.
+     * Returns immediately so the REST handler can respond with 202 —
+     * the actual curl download (30 s – 2 min) finishes in the background
+     * and the UI's poll loop watches `install_status` flip.
+     *
+     * We use `Processes::mwExecBg` (nohup-detached php) instead of a
+     * persistent Beanstalk worker because voice installs are rare and
+     * one-shot — keeping a daemon process around just to wait for the
+     * occasional download is wasteful (memory, ping watchdogs, restart
+     * orchestration). A short-lived `php -f install-voice.php $voiceId`
+     * inherits no request lifetime and is therefore not bound by
+     * WorkerApiCommands' 30-second sync timeout.
+     *
+     * Two-phase row lifecycle:
+     *   - phase 1 (here): row exists with `install_status='installing'`,
+     *     `installed_at='0'`, blank model_path / config_path / size_bytes;
+     *   - phase 2 (detached script): on success all metadata fields are
+     *     populated and `install_status='installed'`. On failure,
+     *     `install_status='failed'` and `install_error` describes what
+     *     went wrong.
+     *
+     * Code that asks "is this voice usable?" must check both that a row
+     * exists AND `install_status` is empty (legacy) or `'installed'`.
+     *
+     * @return array{success: bool, message: string, voice_id?: string, queued?: bool}
      */
     public function installVoice(string $voiceId): array
     {
@@ -101,12 +126,75 @@ class PhraseStudioMain
 
         $this->ensureStorageLayout();
 
+        $existing = PhraseStudioVoices::findFirst("voice_id='" . addslashes($voiceId) . "'");
+        if ($existing !== null && $existing->install_status === 'installing') {
+            return [
+                'success'  => true,
+                'message'  => 'Install already in progress',
+                'voice_id' => $voiceId,
+                'queued'   => true,
+            ];
+        }
+
+        $row = $existing ?? new PhraseStudioVoices();
+        $row->voice_id           = $voiceId;
+        $row->language           = (string)$voice['language'];
+        $row->voice_name         = (string)$voice['voice_name'];
+        $row->quality            = (string)$voice['quality'];
+        $row->sample_rate        = (string)$voice['sample_rate'];
+        $row->install_status     = 'installing';
+        $row->install_error      = '';
+        $row->install_started_at = (string)time();
+        // Reset metadata until the detached script actually finishes the
+        // download — an "installing" row must never be treated as usable.
+        $row->installed_at = '0';
+        $row->model_path   = '';
+        $row->config_path  = '';
+        $row->size_bytes   = '0';
+        $row->save();
+
+        // Detach a short-lived `php -f install-voice.php <voice_id>`. nohup
+        // keeps it alive past the REST request, stdout/stderr go to /dev/null
+        // because errors are persisted on the row itself via install_error.
+        $php    = Util::which('php');
+        $script = __DIR__ . '/Cli/install-voice.php';
+        Processes::mwExecBg(
+            sprintf('%s -f %s %s', escapeshellarg($php), escapeshellarg($script), escapeshellarg($voiceId)),
+            '/dev/null'
+        );
+
+        return [
+            'success'  => true,
+            'message'  => 'Install queued',
+            'voice_id' => $voiceId,
+            'queued'   => true,
+        ];
+    }
+
+    /**
+     * Synchronously downloads voice model files (.onnx + .onnx.json) and
+     * marks the row 'installed' / 'failed'. Called from the worker only.
+     *
+     * @return array{success: bool, message: string}
+     */
+    public function executeVoiceInstall(string $voiceId): array
+    {
+        $voice = PiperVoicesCatalog::find($voiceId);
+        $row   = PhraseStudioVoices::findFirst("voice_id='" . addslashes($voiceId) . "'");
+
+        if ($voice === null || $row === null) {
+            // Catalog mismatch or row vanished: leave whatever state exists.
+            return ['success' => false, 'message' => 'Voice not in catalog or row missing: ' . $voiceId];
+        }
+
+        $this->ensureStorageLayout();
+
         $modelPath  = self::voicesDir() . '/' . $voiceId . '.onnx';
         $configPath = self::voicesDir() . '/' . $voiceId . '.onnx.json';
 
         $curl = Util::which('curl');
         if ($curl === '') {
-            return ['success' => false, 'message' => 'curl binary is not available'];
+            return self::markFailed($row, 'curl binary is not available');
         }
 
         foreach ([['url' => $voice['model_url'], 'dest' => $modelPath],
@@ -121,35 +209,40 @@ class PhraseStudioMain
             if ($rc !== 0 || !is_file($task['dest']) || filesize($task['dest']) < 256) {
                 @unlink($modelPath);
                 @unlink($configPath);
-                return [
-                    'success' => false,
-                    'message' => 'Failed to download voice asset: ' . implode(' ', $out),
-                ];
+                return self::markFailed($row, 'Failed to download voice asset: ' . implode(' ', $out));
             }
         }
 
-        $existing = PhraseStudioVoices::findFirst("voice_id='" . addslashes($voiceId) . "'");
-        $row = $existing ?? new PhraseStudioVoices();
-        $row->voice_id     = $voiceId;
-        $row->language     = (string)$voice['language'];
-        $row->voice_name   = (string)$voice['voice_name'];
-        $row->quality      = (string)$voice['quality'];
-        $row->model_path   = $modelPath;
-        $row->config_path  = $configPath;
-        $row->size_bytes   = (string)((int)filesize($modelPath) + (int)filesize($configPath));
-        $row->sample_rate  = (string)$voice['sample_rate'];
-        $row->installed_at = (string)time();
+        $row->model_path     = $modelPath;
+        $row->config_path    = $configPath;
+        $row->size_bytes     = (string)((int)filesize($modelPath) + (int)filesize($configPath));
+        $row->installed_at   = (string)time();
+        $row->install_status = 'installed';
+        $row->install_error  = '';
         $row->save();
 
-        return [
-            'success'  => true,
-            'message'  => 'Voice installed',
-            'voice_id' => $voiceId,
-        ];
+        return ['success' => true, 'message' => 'Voice installed'];
     }
 
     /**
-     * Removes a previously installed voice from disk and from the DB.
+     * Marks the row as failed and persists the error message so the UI
+     * can show it. Wrapper to keep `executeVoiceInstall` legible.
+     */
+    private static function markFailed(PhraseStudioVoices $row, string $message): array
+    {
+        $row->install_status = 'failed';
+        $row->install_error  = $message;
+        $row->save();
+        return ['success' => false, 'message' => $message];
+    }
+
+    /**
+     * Removes a voice from disk and from the DB.
+     *
+     * Works on rows in any state — 'installed' rows have files to clean
+     * up; 'installing' / 'failed' rows have nothing on disk yet but the
+     * placeholder row still needs to go so the user can re-trigger the
+     * download via the install button.
      */
     public function uninstallVoice(string $voiceId): array
     {
@@ -157,8 +250,12 @@ class PhraseStudioMain
         if ($row === null) {
             return ['success' => false, 'message' => 'Voice not installed'];
         }
-        @unlink($row->model_path ?? '');
-        @unlink($row->config_path ?? '');
+        if (!empty($row->model_path)) {
+            @unlink((string)$row->model_path);
+        }
+        if (!empty($row->config_path)) {
+            @unlink((string)$row->config_path);
+        }
         $row->delete();
         return ['success' => true, 'message' => 'Voice removed'];
     }

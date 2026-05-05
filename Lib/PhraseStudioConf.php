@@ -9,7 +9,9 @@ declare(strict_types=1);
 
 namespace Modules\ModulePhraseStudio\Lib;
 
+use MikoPBX\Core\System\Upgrade\UpdateDatabase;
 use MikoPBX\Modules\Config\ConfigClass;
+use Modules\ModulePhraseStudio\Models\PhraseStudioVoices;
 
 /**
  * ConfigClass for ModulePhraseStudio.
@@ -46,13 +48,30 @@ class PhraseStudioConf extends ConfigClass
     {
         $main = new PhraseStudioMain();
         $main->ensureStorageLayout();
+
+        // Reconcile the SQLite schema against the current model annotations.
+        // EnableModuleAction does NOT auto-run this — only the initial install
+        // does. Without it, columns added in later versions (e.g. async-install
+        // status fields on PhraseStudioVoices) never reach the DB and `save()`
+        // silently drops them. Calling createUpdateDbTableByAnnotations is
+        // idempotent (uses ALTER TABLE ADD COLUMN under the hood, no-op when
+        // columns already match), so it is safe on every enable.
+        try {
+            (new UpdateDatabase())->createUpdateDbTableByAnnotations(PhraseStudioVoices::class);
+        } catch (\Throwable $e) {
+            // Don't block enable on a schema reconcile failure — the rest of
+            // the module still works and an admin can investigate via syslog.
+        }
     }
 
     /**
      * Called once after the module is disabled in the admin cabinet.
      *
-     * Intentionally a no-op: we leave the user's engine binary, models
-     * and phrase cache on disk so re-enabling is instant.
+     * Intentionally a no-op: there are no persistent workers to stop
+     * (synthesize / promote run inline; voice install runs in a one-shot
+     * detached php process from `PhraseStudioMain::installVoice()`).
+     * Engine binary, voice models and phrase cache stay on disk so
+     * re-enabling is instant.
      */
     public function onAfterModuleDisable(): void
     {
